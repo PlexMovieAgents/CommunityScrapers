@@ -279,6 +279,11 @@ def scrape_scene_by_javlibrary(frag):
     id = soup.find('div', {'id': 'video_id'}).find('td', {'class': 'text'}).get_text()
     title = title_with_id.split(id)[1].strip()
 
+    tags = []
+    if match := re.search('#pt(\d+)$', frag['url']):
+        title += ' - pt%s' % match.group(1)
+        tags.append({'name': 'MULTIPART'})
+
     scene = {}
 
     scene['title'] = title
@@ -298,11 +303,67 @@ def scrape_scene_by_javlibrary(frag):
         scene['performers'].append({
             'name': cast.span.a.get_text()
         })
-    scene['tags'] = []
+    
     for genre in soup.find_all('span', {'class': 'genre'}):
-        scene['tags'].append({
+        tags.append({
             'name': genre.a.get_text()
         })
+    scene['tags'] = tags
+
+    return scene
+
+def scrape_scene_by_jav321(frag):
+    JAV_HEADERS = {
+        "User-Agent":
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:79.0) Gecko/20100101 Firefox/79.0',
+        "Referer": "http://www.jav321.com/"
+    }
+    resp = requests.get(frag['url'], headers=JAV_HEADERS)
+    soup = BeautifulSoup(resp.text, 'html.parser')
+
+    
+    id = soup.h3.small.text
+    soup.h3.small.decompose()
+    title_with_id = soup.h3.text
+    
+    title = title_with_id
+
+    tags = []
+    if match := re.search('#pt(\d+)$', frag['url']):
+        title += ' - pt%s' % match.group(1)
+        tags.append({'name': 'MULTIPART'})
+
+    scene = {}
+
+    scene['title'] = title
+    scene['code'] = id.lower()
+    # if director := soup.find('span', {'class': 'director'}):
+    #     scene['director'] = director.a.get_text()
+    scene['url'] = frag['url']
+
+    for br in soup.find_all("br"):
+        br.replace_with("\n")
+    infobox = soup.find('div', {'class': 'col-md-9'}).get_text()
+    if match := re.search('配信開始日:\s+(\d+-\d+-\d+)', infobox):
+        scene['date'] = match.group(1)
+    if match := re.search('メーカー:\s*(\w+)', infobox):
+        scene['studio'] = {
+            'name': match.group(1)
+        }
+    if image := soup.select_one('.col-xs-12.col-md-12'):
+        scene['image'] = image.p.a.img['src']
+
+    # scene['performers'] = []
+    # for cast in soup.find_all('span', {'class': 'cast'}):
+    #     scene['performers'].append({
+    #         'name': cast.span.a.get_text()
+    #     })
+    
+    # for genre in soup.find_all('span', {'class': 'genre'}):
+    #     tags.append({
+    #         'name': genre.a.get_text()
+    #     })
+    # scene['tags'] = tags
 
     return scene
 
@@ -448,10 +509,13 @@ def scrape_scene_by_url(scene):
                 title = title + ' - pt' + match.group(2)
         if match := re.search('^\w+-\d+-[cC]\.', old_title):
             tags.append({'name': 'EDITION: Subbed-C'})
-        elif match := re.search('\d+-?([A-H])\.', old_title):
+        elif match := re.search('(?:\d+|\])-?([A-H]|[1-8])\.', old_title):
             tags.append({'name': 'MULTIPART'})
             scene['movies'] = [movie]
-            title = title + ' - pt' + chr(ord(match.group(1)) - (ord('A') - ord('1')))
+            if ord(match.group(1)) >= ord('A'):
+                title += ' - pt' + chr(ord(match.group(1)) - (ord('A') - ord('1')))
+            else:
+                title += ' - pt' + match.group(1)
         if match := re.search('\{edition-(.+?)\}', old_title):
             tags.append({'name': 'EDITION: %s' % match.group(1)})
         if match := re.search('^\w+-\d+-(\d+)-[cC]', old_title):
@@ -827,20 +891,34 @@ def main():
         result = json.dumps(scene)
         print(result)
     if arg == 'sceneByName':
-        scenes = search_scene(frag)
-        result = json.dumps(scenes)
-        print(result)
+        if 'https://www.javlibrary.com/ja/?v=' in frag['name']:
+            frag['url'] = frag['name']
+            scene = scrape_scene_by_javlibrary(frag)
+            result = json.dumps([scene])
+            print(result)
+        else:
+            scenes = search_scene(frag)
+            result = json.dumps(scenes)
+            print(result)
     if arg == 'sceneByQueryFragment':
         if 'warashi' in frag['url']:
             scene = scrape_scene_by_url(frag)
             result = json.dumps(scene)
             print(result)
+        
         for url in frag['urls']:
             if 'metadataapi' in url:
                 scene = get_metadata_api(url)
                 result = json.dumps(scene)
-            print(result)
-        
+                print(result)
+            if 'javlibrary' in url:
+                scene = scrape_scene_by_javlibrary({'url': url})
+                result = json.dumps(scene)
+                print(result)
+            if 'jav321' in url:
+                scene = scrape_scene_by_jav321({'url': url})
+                result = json.dumps(scene)
+                print(result)
     if arg == 'sceneByURL':
         if 'warashi' in frag['url']:
             scene = scrape_scene_by_url(frag)
@@ -848,6 +926,10 @@ def main():
             print(result)
         if 'javlibrary' in frag['url']:
             scene = scrape_scene_by_javlibrary(frag)
+            result = json.dumps(scene)
+            print(result)
+        if 'jav321' in frag['url']:
+            scene = scrape_scene_by_jav321(frag)
             result = json.dumps(scene)
             print(result)
     if arg == 'movieByURL':
