@@ -892,8 +892,11 @@ def main():
         print(result)
     if arg == 'sceneByName':
         if 'https://www.javlibrary.com/ja/?v=' in frag['name']:
-            frag['url'] = frag['name']
-            scene = scrape_scene_by_javlibrary(frag)
+            scene = scrape_scene_by_javlibrary({'url': frag['name']})
+            result = json.dumps([scene])
+            print(result)
+        elif 'https://www.jav321.com/video/' in frag['name']:
+            scene = scrape_scene_by_jav321({'url': frag['name']})
             result = json.dumps([scene])
             print(result)
         else:
