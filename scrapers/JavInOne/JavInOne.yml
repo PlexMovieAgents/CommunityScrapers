@@ -1,0 +1,64 @@
+name: "JavInOne"
+performerByName:
+    action: script
+    script:
+      - python
+      - JavInOne.py
+      - performerByName
+performerByFragment:
+    action: script
+    script:
+      - python
+      - JavInOne.py
+      - performerByFragment
+performerByURL:
+    - action: script
+      url:
+        - http://warashi-asian-pornstars.fr/en/
+        - http://warashi-asian-pornstars.fr/fr/
+        - http://warashi-asian-pornstars.fr/ja/
+      script:
+        - python
+        - JavInOne.py
+        - performerByURL
+sceneByFragment:
+    action: script
+    script:
+      - python
+      - JavInOne.py
+      - sceneByFragment
+sceneByName:
+    action: script
+    script:
+      - python
+      - JavInOne.py
+      - sceneByName
+sceneByQueryFragment:
+    action: script
+    script:
+      - python
+      - JavInOne.py
+      - sceneByQueryFragment
+sceneByURL:
+  - action: script
+    url:
+        - http://warashi-asian-pornstars.fr/en/
+        - http://warashi-asian-pornstars.fr/fr/
+        - http://warashi-asian-pornstars.fr/ja/
+        - https://www.javlibrary.com/ja/
+    script:
+      - python
+      - JavInOne.py
+      - sceneByURL
+movieByURL:
+  - action: script
+    url:
+        - http://warashi-asian-pornstars.fr/en/
+        - http://warashi-asian-pornstars.fr/fr/
+        - http://warashi-asian-pornstars.fr/ja/
+        - https://www.javlibrary.com/ja/
+    script:
+      - python
+      - JavInOne.py
+      - movieByURL
+# Last Updated January 11, 2022
