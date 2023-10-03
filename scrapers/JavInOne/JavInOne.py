@@ -398,7 +398,7 @@ def scrape_scene_by_url(scene):
             if label == 'DVD品番':
                 log.info('METADATA %s:%s' % (label, value))
 
-            if label == 'DMM CID':
+            if label == 'DMM CID' or label == '品番':
                 log.info('METADATA %s:%s' % (label, value))
                 dmm_cid = value
 
@@ -450,7 +450,7 @@ def scrape_scene_by_url(scene):
 
     backgroundUrl = None
     try:
-        backgroundUrl = base_site + details.find('div', {'id': 'fiche-film-trailer'}).video.get('poster')
+        backgroundUrl = base_site + details.find('div', {'id': ['fiche-film-trailer', 'fiche-contenu-web-trailer']}).video.get('poster')
         scene['image'] = backgroundUrl
     except:
         pass
@@ -549,8 +549,9 @@ def scrape_scene(frag):
     title = title.replace('%20', ' ')
     #title = title.replace('20', ' ')
 
-    match = re.search('^(\d{6})[^\d](\d{3})', title)
-    if match:
+    part = None
+
+    if match := re.search('^(\d{6})[^\d](\d{3})', title):
         if '1pon' in title:
             title = match.group(1) + "_" + match.group(2)
         if 'Carib' in title:
@@ -569,7 +570,13 @@ def scrape_scene(frag):
     if match := re.search('h_\d+([a-zA-Z]+)00?(\d+)', title):   #h_068mxgs00009
         title = match.group(1) + '-' + match.group(2)
         log.info('REFORMAT TITLE %s ' % title)
-    
+    if match := re.fullmatch('[\s\d]*(\w+)[\s\-]*(\d+)\s*.*?([A-H])\.\w+', title):
+        title = '%s%s' % (match.group(1), match.group(2))
+        part = chr(ord(match.group(3)) - (ord('A') - ord('1')))
+        log.info('REFORMAT TITLE %s %s' % (title, part))
+    elif match := re.match('[\s\d]*(\w+)[\s\-]*(\d+)\s+', title):
+        title = '%s%s' % (match.group(1), match.group(2))
+
     title = title.lower()
 
     match = re.search('^[Cc]arib[^\d]+(\d{6})[^\d](\d{3})', title)
@@ -660,6 +667,9 @@ def scrape_scene(frag):
                 url = base_site + curpath
                 log.info('CURURL: ' + url)
 
+                if part:
+                    url += '#pt' + part
+            
                 frag['url'] = url
 
                 scene = scrape_scene_by_url(frag)
@@ -745,9 +755,16 @@ def search_scene(frag):
     try:
         query = frag['name']
         part = None
-        if match := re.match('(.+?) - pt(\d+)', query):
+        if match := re.fullmatch('(.+?) - pt(\d+)', query):
             query = match.group(1)
             part = match.group(2)
+        elif match := re.fullmatch('\s*(\w+)\s*(\d+)\s*.*?([a-h])', query):
+            query = '%s%s' % (match.group(1), match.group(2))
+            part = chr(ord(match.group(3)) - (ord('a') - ord('1')))
+        elif match := re.match('\s*(\w+)\s*(\d+)\s+', query):
+            query = '%s%s' % (match.group(1), match.group(2))
+
+        log.info('WAPdb SEARCH query=%s part=%s' % (query, part))
 
         data = { 
             "recherche_critere":"v",
