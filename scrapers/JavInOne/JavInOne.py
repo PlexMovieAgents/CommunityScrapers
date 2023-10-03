@@ -497,8 +497,7 @@ def scrape_scene_by_url(scene):
     elif match := re.search('#pt(\d+)$', url):
         title += ' - pt%s' % match.group(1)
         tags.append({'name': 'MULTIPART'})
-    else:
-        old_title = scene.get('title', '')
+    elif old_title := scene.get('title', ''):
         log.info("Processing old title: %s" % old_title)
         if match := re.search(' - pt(\d+)|(?:hhb|SD|HD|CD)(\d+)', old_title):
             tags.append({'name': 'MULTIPART'})
@@ -507,9 +506,9 @@ def scrape_scene_by_url(scene):
                 title = title + ' - pt' + match.group(1)
             elif match.group(2):
                 title = title + ' - pt' + match.group(2)
-        if match := re.search('^\w+-\d+-[cC]\.', old_title):
+        if match := re.match('\w+-\d+-[cC]\.', old_title):
             tags.append({'name': 'EDITION: Subbed-C'})
-        elif match := re.search('(?:\d+|\])-?([A-H]|[1-8])\.', old_title):
+        elif match := re.search('(?:\d+|\])-?([A-H])\.', old_title):
             tags.append({'name': 'MULTIPART'})
             scene['movies'] = [movie]
             if ord(match.group(1)) >= ord('A'):
@@ -533,6 +532,9 @@ def scrape_scene(frag):
 
     if not 'title' in frag:
         return frag
+    
+    search_titles = []
+
     title = frag['title']
 
     if url := frag.get('url'):
@@ -570,14 +572,18 @@ def scrape_scene(frag):
     if match := re.search('h_\d+([a-zA-Z]+)00?(\d+)', title):   #h_068mxgs00009
         title = match.group(1) + '-' + match.group(2)
         log.info('REFORMAT TITLE %s ' % title)
-    if match := re.fullmatch('[\s\d]*(\w+)[\s\-]*(\d+)\s*.*?([A-H])\.\w+', title):
+    if match := re.fullmatch('(\w+)-(\d+)-C\.\w+', title):
+        title = '%s%s' % (match.group(1), match.group(2))
+        search_titles.append('%s-%s' % (match.group(1), match.group(2)))
+        log.info('REFORMAT TITLE %s ' % title)
+    elif match := re.fullmatch('[\s\d]*(\w+)[\s\-]*(\d+)\s*.*?([A-H])\.\w+', title):
         title = '%s%s' % (match.group(1), match.group(2))
         part = chr(ord(match.group(3)) - (ord('A') - ord('1')))
         log.info('REFORMAT TITLE %s %s' % (title, part))
     elif match := re.match('[\s\d]*(\w+)[\s\-]*(\d+)\s+', title):
         title = '%s%s' % (match.group(1), match.group(2))
-
-    title = title.lower()
+        search_titles.append('%s-%s' % (match.group(1), match.group(2)))
+        log.info('REFORMAT TITLE %s ' % title)
 
     match = re.search('^[Cc]arib[^\d]+(\d{6})[^\d](\d{3})', title)
     if match:
@@ -594,88 +600,93 @@ def scrape_scene(frag):
         title = (match.group(1) + '-' + match.group(2))
         log.info('REFORMAT TITLE %s ' % title)
     
-    log.info('SEARCH TITLE is %s ' % title)
-
-    data = { 
-        "recherche_critere":"v",
-        "recherche_valeur":title,
-        "x":"15",
-        "y":"19"
-    }
     
-        # searchHTML = HTTP.Request(PAsearchSites.getSearchSearchURL('WAPdb'), searchValues, cacheTime = 0.0)
-    base_site = 'http://warashi-asian-pornstars.fr'
-    resp = requests.post(f'{base_site}/ja/s-12/%E6%A4%9C%E7%B4%A2', data=data)
+    search_titles.append(title)
 
-    log.debug('WAPdb SEARCH VIDEO HTML ' + resp.text)
-    
-    searchResultsArray = [(resp.url, BeautifulSoup(resp.text, 'html.parser'))]
+    for title in search_titles:
+        title = title.lower()
 
-    data = { 
-        "recherche_critere":"w",
-        "recherche_valeur":title,
-        "x":"15",
-        "y":"19"
-    }
-    resp = requests.post(f'{base_site}/ja/s-12/%E6%A4%9C%E7%B4%A2', data=data)
+        log.info('SEARCH TITLE is %s ' % title)
 
-    log.debug('WAPdb SEARCH WEB HTML ' + resp.text)
-    searchResultsArray.append((resp.url, BeautifulSoup(resp.text, 'html.parser')))
+        data = { 
+            "recherche_critere":"v",
+            "recherche_valeur":title,
+            "x":"15",
+            "y":"19"
+        }
+        
+        base_site = 'http://warashi-asian-pornstars.fr'
+        resp = requests.post(f'{base_site}/ja/s-12/%E6%A4%9C%E7%B4%A2', data=data)
 
-    for searchURL, searchResults in searchResultsArray:
-        # for searchResult in searchResults.xpath('//div[@class="resultat-film"]'):
-        divs = searchResults.find_all('div', {'class': 'resultat-film'})
-        if len(divs) == 0:
-            log.warning(f'Failed to locate search entry from {searchURL}')
-            continue
-        for searchResult in divs:
-            log.info("**GOT ITEM**")
-            log.debug(searchResult.prettify())
-            # a = searchResult.xpath('./p/a')[0]
-            a = searchResult.p.a
-            href = a.get('href')
-            log.info("**HREF**" + href)
-            match = re.search('(/ja/s-\d-0/.+)', href)
-            if match is None:
-                log.warning(f"Failed to locate entry from search {href}")
+        log.debug('WAPdb SEARCH VIDEO HTML ' + resp.text)
+        
+        searchResultsArray = [(resp.url, BeautifulSoup(resp.text, 'html.parser'))]
+
+        data = { 
+            "recherche_critere":"w",
+            "recherche_valeur":title,
+            "x":"15",
+            "y":"19"
+        }
+        resp = requests.post(f'{base_site}/ja/s-12/%E6%A4%9C%E7%B4%A2', data=data)
+
+        log.debug('WAPdb SEARCH WEB HTML ' + resp.text)
+        searchResultsArray.append((resp.url, BeautifulSoup(resp.text, 'html.parser')))
+
+        for searchURL, searchResults in searchResultsArray:
+            # for searchResult in searchResults.xpath('//div[@class="resultat-film"]'):
+            divs = searchResults.find_all('div', {'class': 'resultat-film'})
+            if len(divs) == 0:
+                log.warning(f'Failed to locate search entry from {searchURL}')
                 continue
+            for searchResult in divs:
+                log.info("**GOT ITEM**")
+                log.debug(searchResult.prettify())
+                # a = searchResult.xpath('./p/a')[0]
+                a = searchResult.p.a
+                href = a.get('href')
+                log.info("**HREF**" + href)
+                match = re.search('(/ja/s-\d-0/.+)', href)
+                if match is None:
+                    log.warning(f"Failed to locate entry from search {href}")
+                    continue
 
-            curid = match.group(1)
-            log.info("****GOT ID****" + curid)
-            #for corr in searchResults.xpath('.//span[@class="correspondance"'):
-            curtitle = "NOT_FOUND"
-            bandid = "UNKNKOWN"
-            for p in searchResult.find_all('p'):
-                pContent = p.get_text()
-                #log.info(str(pContent))
-                if pContent.startswith('オリジナル·タイトル: '):
-                    curtitle = pContent[12:]
+                curid = match.group(1)
+                log.info("****GOT ID****" + curid)
+                #for corr in searchResults.xpath('.//span[@class="correspondance"'):
+                curtitle = "NOT_FOUND"
+                bandid = "UNKNKOWN"
+                for p in searchResult.find_all('p'):
+                    pContent = p.get_text()
+                    #log.info(str(pContent))
+                    if pContent.startswith('オリジナル·タイトル: '):
+                        curtitle = pContent[12:]
+                        log.info("****CURTITLE****" + curtitle)
+                    if pContent.startswith('品番:'):
+                        bandid = pContent[4:]
+                        log.info("****BANDID****" + bandid)
+                        
+                if curtitle == "NOT_FOUND":
+                    curtitle = a.get_text().strip()
                     log.info("****CURTITLE****" + curtitle)
-                if pContent.startswith('品番:'):
-                    bandid = pContent[4:]
-                    log.info("****BANDID****" + bandid)
-                    
-            if curtitle == "NOT_FOUND":
-                curtitle = a.get_text().strip()
-                log.info("****CURTITLE****" + curtitle)
-            
-            if bandid == title or curtitle == title:
-                curpath = curid
-                curpath = curpath.replace('ポルノ·av映画', '%E3%83%9D%E3%83%AB%E3%83%8E%C2%B7av%E6%98%A0%E7%94%BB')
-                curpath = curpath.replace('ウェブ·コンテンツ', '%E3%82%A6%E3%82%A7%E3%83%96%C2%B7%E3%82%B3%E3%83%B3%E3%83%86%E3%83%B3%E3%83%84')
-                log.info('CURPATH: ' + curpath)
-                url = base_site + curpath
-                log.info('CURURL: ' + url)
+                
+                if bandid == title or curtitle == title:
+                    curpath = curid
+                    curpath = curpath.replace('ポルノ·av映画', '%E3%83%9D%E3%83%AB%E3%83%8E%C2%B7av%E6%98%A0%E7%94%BB')
+                    curpath = curpath.replace('ウェブ·コンテンツ', '%E3%82%A6%E3%82%A7%E3%83%96%C2%B7%E3%82%B3%E3%83%B3%E3%83%86%E3%83%B3%E3%83%84')
+                    log.info('CURPATH: ' + curpath)
+                    url = base_site + curpath
+                    log.info('CURURL: ' + url)
 
-                if part:
-                    url += '#pt' + part
-            
-                frag['url'] = url
+                    if part:
+                        url += '#pt' + part
+                
+                    frag['url'] = url
 
-                scene = scrape_scene_by_url(frag)
-                return scene
-            else:
-                log.warning(f'Failed to match {title} with bandid={bandid} or curtitle={curtitle}')
+                    scene = scrape_scene_by_url(frag)
+                    return scene
+                else:
+                    log.warning(f'Failed to match {title} with bandid={bandid} or curtitle={curtitle}')
 
     #fall back to tpdb
     try:
@@ -908,14 +919,8 @@ def main():
         result = json.dumps(scene)
         print(result)
     if arg == 'sceneByName':
-        if 'https://www.javlibrary.com/ja/?v=' in frag['name']:
-            scene = scrape_scene_by_javlibrary({'url': frag['name']})
-            result = json.dumps([scene])
-            print(result)
-        elif 'https://www.jav321.com/video/' in frag['name']:
-            scene = scrape_scene_by_jav321({'url': frag['name']})
-            result = json.dumps([scene])
-            print(result)
+        if 'http://warashi-asian-pornstars.fr/ja/s-4-0/' in frag['name'] or 'https://www.javlibrary.com/ja/?v=' in frag['name'] or 'https://www.jav321.com/video/' in frag['name']:
+            print(json.dumps([{'url': frag['name']}]))
         else:
             scenes = search_scene(frag)
             result = json.dumps(scenes)
