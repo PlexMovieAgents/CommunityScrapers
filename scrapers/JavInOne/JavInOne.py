@@ -61,17 +61,19 @@ def scrape_performer(url):
     if resp.ok:
         soup = BeautifulSoup(resp.text, 'html.parser')
         if soup.find('div', {'id': 'casting-profil-mini-infos'}):
-            return scrape_mini_profile(soup, url)
+            profile = scrape_mini_profile(soup, url)
+            log.info(str(profile))
+            return profile
         else:
             return scrape_full_profile(soup, url)
 
 
 def scrape_mini_profile(soup, url):
     performer = {}
-    birthdate_prefix = 'birthdate: '
-    birthplace_prefix = 'birthplace: '
-    measurements_prefix = 'measurements: '
-    height_prefix = 'height: '
+    birthdate_prefix = '生年月日: '
+    birthplace_prefix = '出身地: '
+    measurements_prefix = 'スリーサイズ: '
+    height_prefix = '身長: '
 
     performer['url'] = url
     if gender := get_gender(url):
@@ -94,13 +96,15 @@ def scrape_mini_profile(soup, url):
         if birthdate_node := details_node.find('p', string=lambda t: birthdate_prefix in str(t)):
             birthdate_full = birthdate_node.text.split(birthdate_prefix)[1]
             if birthdate_full != 'unknown':
-                performer['birthdate'] = datetime.strptime(birthdate_full, '%B %d, %Y').strftime('%Y-%m-%d')
+                performer['birthdate'] = datetime.strptime(birthdate_full, '%Y年%m月%d日').strftime('%Y-%m-%d')
         if birthplace_node := details_node.find('p', string=lambda t: birthplace_prefix in str(t)):
             birthplace_full = birthplace_node.text.split(birthplace_prefix)[1]
             if ', ' in birthplace_full:
                 birthplace = birthplace_full.split(', ')[0]
             else:
                 birthplace = birthplace_full
+            if birthplace == '日本':
+                birthplace = 'Japan'
             if birthplace != 'unknown':
                 performer['country'] = birthplace
             if birthplace == 'Japan':
@@ -172,8 +176,10 @@ def scrape_full_profile(soup, url):
 
     if len(country_nodes := soup.find_all('span', {'itemprop': 'addressCountry'})) > 1:
         country = country_nodes[1].text
+        if country == '日本':
+            country = 'Japan'
         performer['country'] = country
-        if country == 'Japan' or country == '日本':
+        if country == 'Japan':
             performer['ethnicity'] = 'asian'
 
     aliases = [process_name(alphabet_name)]
@@ -367,6 +373,48 @@ def scrape_scene_by_jav321(frag):
 
     return scene
 
+def scrape_scene_by_dmm(frag):
+    JAV_HEADERS = {
+        "User-Agent":
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:79.0) Gecko/20100101 Firefox/79.0',
+        "Referer": "http://www.dmm.com/"
+    }
+    resp = requests.get(frag['url'], headers=JAV_HEADERS)
+    soup = BeautifulSoup(resp.text, 'html.parser')
+    
+    scene = {}
+    scene['performers'] = []
+    scene['tags'] = []
+
+    scene['title'] = soup.find('h1', {'id': 'title'}).text
+    scene['details'] = soup.find('p', {'class': 'mg-b20'}).text
+
+    infobox = soup.find('table', {'class': 'mg-b20'})
+    for tr in infobox.find_all('tr'):
+        label = tr.find('td', {'class': 'nw'})
+        if not label:
+            continue
+        if '発売日' in label.text:
+            scene['date'] = tr.find('td', width=True).text.replace('/', '-')
+        if '出演者' in label.text:
+            for a in tr.find('td', width=True).find_all('a'):
+                scene['performers'].append({'name': a.text})
+        if '監督' in label.text:
+            scene['director'] = tr.find('td', width=True).text
+            if scene['director'] == '----':
+                del scene['director']
+        if 'メーカー' in label.text:
+            scene['studio'] = {'name': tr.find('td', width=True).text}
+        if 'ジャンル' in label.text:
+            for a in tr.find('td', width=True).find_all('a'):
+                scene['tags'].append({'name': a.text})
+        if '品番' in label.text:
+            scene['code'] = tr.find('td', width=True).text
+
+    scene['image'] = soup.find('a', {'name': 'package-image'})['href']
+
+    return scene
+
 def scrape_scene_by_url(scene):
     base_site = 'http://warashi-asian-pornstars.fr'
     
@@ -499,7 +547,7 @@ def scrape_scene_by_url(scene):
         tags.append({'name': 'MULTIPART'})
     elif old_title := scene.get('title', ''):
         log.info("Processing old title: %s" % old_title)
-        if match := re.search(' - pt(\d+)|(?:hhb|SD|HD|CD)(\d+)', old_title):
+        if match := re.search(' - pt(\d+)|(?:hhb|SD|HD|CD|cd)(\d+)', old_title):
             tags.append({'name': 'MULTIPART'})
             scene['movies'] = [movie]
             if match.group(1):
@@ -511,10 +559,11 @@ def scrape_scene_by_url(scene):
         elif match := re.search('(?:\d+|\])-?([A-H])\.', old_title):
             tags.append({'name': 'MULTIPART'})
             scene['movies'] = [movie]
-            if ord(match.group(1)) >= ord('A'):
-                title += ' - pt' + chr(ord(match.group(1)) - (ord('A') - ord('1')))
-            else:
-                title += ' - pt' + match.group(1)
+            title += ' - pt' + chr(ord(match.group(1)) - (ord('A') - ord('1')))
+        elif match := re.search('(?:\d+|\])-([1-8])\.', old_title):
+            tags.append({'name': 'MULTIPART'})
+            scene['movies'] = [movie]
+            title += ' - pt' + match.group(1)
         if match := re.search('\{edition-(.+?)\}', old_title):
             tags.append({'name': 'EDITION: %s' % match.group(1)})
         if match := re.search('^\w+-\d+-(\d+)-[cC]', old_title):
@@ -581,6 +630,10 @@ def scrape_scene(frag):
         part = chr(ord(match.group(3)) - (ord('A') - ord('1')))
         log.info('REFORMAT TITLE %s %s' % (title, part))
     elif match := re.match('[\s\d]*(\w+)[\s\-]*(\d+)\s+', title):
+        title = '%s%s' % (match.group(1), match.group(2))
+        search_titles.append('%s-%s' % (match.group(1), match.group(2)))
+        log.info('REFORMAT TITLE %s ' % title)
+    elif match := re.match('\d+-\d+-\d+\s+(\w+)[\s\-]*(\d+)', title):
         title = '%s%s' % (match.group(1), match.group(2))
         search_titles.append('%s-%s' % (match.group(1), match.group(2)))
         log.info('REFORMAT TITLE %s ' % title)
@@ -688,7 +741,35 @@ def scrape_scene(frag):
                 else:
                     log.warning(f'Failed to match {title} with bandid={bandid} or curtitle={curtitle}')
 
-    #fall back to tpdb
+    #fallback to javlibrary
+    try:
+        #https://www.javlibrary.com/ja/vl_searchbyid.php?keyword=Ssis541
+        JAV_HEADERS = {
+            "User-Agent":
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:79.0) Gecko/20100101 Firefox/79.0',
+            "Referer": "http://www.javlibrary.com/"
+        }
+        scenes = []
+        for title in search_titles:
+            url = 'https://www.javlibrary.com/ja/vl_searchbyid.php?list&keyword=%s' % urllib.parse.quote(title)
+            resp = requests.get(url, headers=JAV_HEADERS)
+            soup = BeautifulSoup(resp.text, 'html.parser')
+
+            for video in soup.find_all('div', {'class': 'videotextlist'}):
+                a = video.find('a')
+                scenes.append({
+                    'title': a['title'],
+                    'url': 'https://www.javlibrary.com/ja/' + a['href'].replace('./', '', 1)
+                })
+        
+        if scenes:
+            return scenes
+    except Exception as e:
+        log.warning(f'Fallback javlibrary failed with {str(e)}')
+
+    return frag
+
+    #fallback to tpdb
     try:
         API_BASE_URL = 'https://api.metadataapi.net'
         API_SEARCH_URL = API_BASE_URL + '/jav?parse=%s'
@@ -715,7 +796,7 @@ def scrape_scene(frag):
 
             title = result['title']
             old_title = frag.get('title', '')
-            if match := re.search(' - pt(\d+)|(?:hhb|SD|HD|CD)(\d+)', old_title):
+            if match := re.search(' - pt(\d+)|(?:hhb|SD|HD|CD|cd)(\d+)', old_title):
                 result['tags'].append({'name': 'MULTIPART'})
                 if match.group(1):
                     title = title + ' - pt' + match.group(1)
@@ -868,6 +949,34 @@ def search_scene(frag):
     if wapdb_hit:
         return merged_results
 
+     #fallback to javlibrary
+    try:
+        #https://www.javlibrary.com/ja/vl_searchbyid.php?keyword=Ssis541
+        JAV_HEADERS = {
+            "User-Agent":
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:79.0) Gecko/20100101 Firefox/79.0',
+            "Referer": "http://www.javlibrary.com/"
+        }
+        url = 'https://www.javlibrary.com/ja/vl_searchbyid.php?list&keyword=%s' % urllib.parse.quote(frag['name'])
+        resp = requests.get(url, headers=JAV_HEADERS)
+        log.debug(f'Fallback javlibrary with {resp.status_code}')
+        log.debug(f'Fallback javlibrary with {resp.text}')
+
+        soup = BeautifulSoup(resp.text, 'html.parser')
+
+        video = soup.find('table', {'class': 'videotextlist'})
+
+        for a in video.find_all('a', id=False):
+            merged_results.append({
+                'title': a['title'],
+                'url': 'https://www.javlibrary.com/ja/' + a['href'].replace('./', '', 1)
+            })
+        
+    except Exception as e:
+        log.warning(f'Fallback javlibrary failed with {str(e)}')
+
+    return merged_results
+
     try:
         API_BASE_URL = 'https://api.metadataapi.net'
         API_SEARCH_URL = API_BASE_URL + '/jav?parse=%s'
@@ -919,7 +1028,13 @@ def main():
         result = json.dumps(scene)
         print(result)
     if arg == 'sceneByName':
-        if 'http://warashi-asian-pornstars.fr/ja/s-4-0/' in frag['name'] or 'https://www.javlibrary.com/ja/?v=' in frag['name'] or 'https://www.jav321.com/video/' in frag['name']:
+        if 'http://warashi-asian-pornstars.fr/ja/s-4-0/' in frag['name']:
+            print(json.dumps([{'url': frag['name']}]))
+        elif 'https://www.javlibrary.com/ja/?v=' in frag['name']:
+            print(json.dumps([{'url': frag['name']}]))
+        elif 'https://www.jav321.com/video/' in frag['name']:
+            print(json.dumps([{'url': frag['name']}]))
+        elif 'https://www.dmm.com/' in frag['name']:
             print(json.dumps([{'url': frag['name']}]))
         else:
             scenes = search_scene(frag)
@@ -944,6 +1059,10 @@ def main():
                 scene = scrape_scene_by_jav321({'url': url})
                 result = json.dumps(scene)
                 print(result)
+            if 'dmm.com' in url:
+                scene = scrape_scene_by_dmm({'url': url})
+                result = json.dumps(scene)
+                print(result)
     if arg == 'sceneByURL':
         if 'warashi' in frag['url']:
             scene = scrape_scene_by_url(frag)
@@ -955,6 +1074,10 @@ def main():
             print(result)
         if 'jav321' in frag['url']:
             scene = scrape_scene_by_jav321(frag)
+            result = json.dumps(scene)
+            print(result)
+        if 'dmm.com' in frag['url']:
+            scene = scrape_scene_by_dmm(frag)
             result = json.dumps(scene)
             print(result)
     if arg == 'movieByURL':

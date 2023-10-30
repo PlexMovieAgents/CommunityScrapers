@@ -47,6 +47,7 @@ sceneByURL:
         - http://warashi-asian-pornstars.fr/ja/
         - https://www.javlibrary.com/ja/
         - https://www.jav321.com/video/
+        - https://www.dmm.com/
     script:
       - python
       - JavInOne.py
@@ -58,6 +59,7 @@ movieByURL:
         - http://warashi-asian-pornstars.fr/fr/
         - http://warashi-asian-pornstars.fr/ja/
         - https://www.javlibrary.com/ja/
+        - https://www.dmm.com/
     script:
       - python
       - JavInOne.py
