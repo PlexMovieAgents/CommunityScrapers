@@ -415,6 +415,109 @@ def scrape_scene_by_dmm(frag):
 
     return scene
 
+def scrape_scene_by_carib(frag):
+    JAV_HEADERS = {
+        "User-Agent":
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:79.0) Gecko/20100101 Firefox/79.0',
+        "Referer": "https://www.caribbeancom.com/"
+    }
+
+    log.info(f'Requesting carib {frag["url"]}')
+
+    resp = requests.get(frag['url'], headers=JAV_HEADERS, timeout=10000)
+    soup = BeautifulSoup(resp.content, 'html.parser', from_encoding="euc-jp")
+    
+    scene = {}
+    scene['performers'] = []
+    scene['tags'] = [{'name': '無修正'}]
+
+    movie_info = soup.find('div', {'class': 'movie-info'})
+
+    scene['title'] = movie_info.find('h1').text
+    scene['details'] = movie_info.find('p').text
+    for li in movie_info.find_all('li', {'class': 'movie-spec'}):
+        label = li.find('span', {'class': 'spec-title'}).text
+        if not label:
+            continue
+        if '配信日' in label:
+            scene['date'] = li.find('span', {'class': 'spec-content'}).text.replace('/', '-')
+        if '出演' in label:
+            for a in li.find_all('a'):
+                scene['performers'].append({'name': a.text})
+    #     if '監督' in label.text:
+    #         scene['director'] = tr.find('td', width=True).text
+    #         if scene['director'] == '----':
+    #             del scene['director']
+        if 'スタジオ' in label:
+            scene['studio'] = {'name': li.find('span', {'class': 'spec-content'}).text.strip()}
+        if 'タグ' in label:
+            for a in li.find_all('a'):
+                scene['tags'].append({'name': a.text})
+    #     if '品番' in label.text:
+    #         scene['code'] = tr.find('td', width=True).text
+
+    # scene['image'] = soup.find('a', {'name': 'package-image'})['href']
+    if match := re.search(r'/(\d{6}-\d{3})/', frag['url']):
+        scene['code'] = match.group(1)
+        scene['image'] = 'https://www.caribbeancom.com/moviepages/' + match.group(1) + '/images/l_l.jpg'
+    if 'studio' not in scene:
+        scene['studio'] = {'name': 'カリビアンコム'}
+
+    return scene
+
+def scrape_scene_by_caribpr(frag):
+    JAV_HEADERS = {
+        "User-Agent":
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:79.0) Gecko/20100101 Firefox/79.0',
+        "Referer": "https://www.caribbeancompr.com/"
+    }
+
+    log.info(f'Requesting caribpr {frag["url"]}')
+
+    # session = get_legacy_session()
+
+    session = requests.Session()
+    session.mount(frag["url"], CustomSslContextHttpAdapter())
+
+    resp = requests.get(frag['url'], headers=JAV_HEADERS, timeout=10000)
+    soup = BeautifulSoup(resp.content, 'html.parser', from_encoding="euc-jp")
+    
+    scene = {}
+    scene['performers'] = []
+    scene['tags'] = [{'name': '無修正'}]
+
+    movie_info = soup.find('div', {'class': 'movie-info'})
+
+    scene['title'] = movie_info.find('h1').text
+    scene['details'] = movie_info.find('p').text
+    for li in movie_info.find_all('li', {'class': 'movie-spec'}):
+        label = li.find('span', {'class': 'spec-title'}).text
+        if not label:
+            continue
+        if '販売日' in label:
+            scene['date'] = li.find('span', {'class': 'spec-content'}).text
+        if '出演' in label:
+            for a in li.find_all('a'):
+                scene['performers'].append({'name': a.text})
+    #     if '監督' in label.text:
+    #         scene['director'] = tr.find('td', width=True).text
+    #         if scene['director'] == '----':
+    #             del scene['director']
+        if 'スタジオ' in label:
+            scene['studio'] = {'name': li.find('span', {'class': 'spec-content'}).text.strip()}
+        if 'タグ' in label:
+            for a in li.find_all('a'):
+                scene['tags'].append({'name': a.text})
+    #     if '品番' in label.text:
+    #         scene['code'] = tr.find('td', width=True).text
+
+    # scene['image'] = soup.find('a', {'name': 'package-image'})['href']
+    if match := re.search(r'/(\d{6}_\d{3})/', frag['url']):
+        scene['code'] = match.group(1)
+        scene['image'] = 'https://www.caribbeancompr.com/moviepages/' + match.group(1) + '/images/l_l.jpg'
+
+    return scene
+
 def scrape_scene_by_url(scene):
     base_site = 'http://warashi-asian-pornstars.fr'
     
@@ -477,6 +580,8 @@ def scrape_scene_by_url(scene):
 
             # if label == 'レーベル':
             #     metadata.tagline = value
+            if label == 'ウェブサイト':
+                tags.append({'name': '無修正'})
 
             if label == 'タグ':
                 for genre in details.find_all('span', {'itemprop': 'keywords'}):
@@ -1036,6 +1141,14 @@ def main():
             print(json.dumps([{'url': frag['name']}]))
         elif 'https://www.dmm.com/' in frag['name']:
             print(json.dumps([{'url': frag['name']}]))
+        elif 'https://www.caribbeancompr.com/' in frag['name']:
+            print(json.dumps([{'url': frag['name']}]))
+        elif 'https://www.caribbeancom.com/' in frag['name']:
+            print(json.dumps([{'url': frag['name']}]))
+        elif match := re.search(r'caribpr\s*(\d{6})\s*(\d{3})', frag['name']):
+            print(json.dumps([{'url': f'https://www.caribbeancompr.com/moviepages/{match.group(1)}_{match.group(2)}/index.html'}]))
+        elif match := re.search(r'carib\s*(\d{6})\s*(\d{3})', frag['name']):
+            print(json.dumps([{'url': f'https://www.caribbeancom.com/moviepages/{match.group(1)}-{match.group(2)}/index.html'}]))
         else:
             scenes = search_scene(frag)
             result = json.dumps(scenes)
@@ -1063,7 +1176,16 @@ def main():
                 scene = scrape_scene_by_dmm({'url': url})
                 result = json.dumps(scene)
                 print(result)
+            if 'caribbeancompr.com' in url:
+                scene = scrape_scene_by_caribpr({'url': url})
+                result = json.dumps(scene)
+                print(result)
+            if 'caribbeancom.com' in url:
+                scene = scrape_scene_by_carib({'url': url})
+                result = json.dumps(scene)
+                print(result)
     if arg == 'sceneByURL':
+        log.info(f'sceneByURL {frag}')
         if 'warashi' in frag['url']:
             scene = scrape_scene_by_url(frag)
             result = json.dumps(scene)
@@ -1078,6 +1200,14 @@ def main():
             print(result)
         if 'dmm.com' in frag['url']:
             scene = scrape_scene_by_dmm(frag)
+            result = json.dumps(scene)
+            print(result)
+        if 'caribbeancompr.com' in frag['url']:
+            scene = scrape_scene_by_caribpr(frag)
+            result = json.dumps(scene)
+            print(result)
+        if 'caribbeancom.com' in frag['url']:
+            scene = scrape_scene_by_carib(frag)
             result = json.dumps(scene)
             print(result)
     if arg == 'movieByURL':
