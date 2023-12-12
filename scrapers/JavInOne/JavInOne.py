@@ -95,8 +95,11 @@ def scrape_mini_profile(soup, url):
     if details_node := soup.find('div', {'id': 'casting-profil-mini-infos-details'}):
         if birthdate_node := details_node.find('p', string=lambda t: birthdate_prefix in str(t)):
             birthdate_full = birthdate_node.text.split(birthdate_prefix)[1]
-            if birthdate_full != 'unknown':
-                performer['birthdate'] = datetime.strptime(birthdate_full, '%Y年%m月%d日').strftime('%Y-%m-%d')
+            try:
+                if birthdate_full != 'unknown':
+                    performer['birthdate'] = datetime.strptime(birthdate_full, '%Y年%m月%d日').strftime('%Y-%m-%d')
+            except:
+                pass
         if birthplace_node := details_node.find('p', string=lambda t: birthplace_prefix in str(t)):
             birthplace_full = birthplace_node.text.split(birthplace_prefix)[1]
             if ', ' in birthplace_full:
@@ -342,7 +345,12 @@ def scrape_scene_by_jav321(frag):
     scene = {}
 
     scene['title'] = title
-    scene['code'] = id.lower()
+    id_splits = id.lower().split()
+    if id_splits:
+        scene['code'] = id_splits[0]
+        scene['performers'] = []
+        for name in id_splits[1:]:
+            scene['performers'].append({'name': name})
     # if director := soup.find('span', {'class': 'director'}):
     #     scene['director'] = director.a.get_text()
     scene['url'] = frag['url']
@@ -395,7 +403,9 @@ def scrape_scene_by_dmm(frag):
         if not label:
             continue
         if '発売日' in label.text:
-            scene['date'] = tr.find('td', width=True).text.replace('/', '-')
+            date = tr.find('td', width=True).text.replace('/', '-')
+            if not date == '----':
+                scene['date'] = date
         if '出演者' in label.text:
             for a in tr.find('td', width=True).find_all('a'):
                 scene['performers'].append({'name': a.text})
@@ -411,7 +421,65 @@ def scrape_scene_by_dmm(frag):
         if '品番' in label.text:
             scene['code'] = tr.find('td', width=True).text
 
-    scene['image'] = soup.find('a', {'name': 'package-image'})['href']
+    if package_image := soup.find('a', {'name': 'package-image'}):
+        scene['image'] = package_image['href']
+    elif img_tdmm := soup.find('img', {'class': 'tdmm'}):
+        scene['image'] = img_tdmm['src']
+
+    return scene
+
+def scrape_scene_by_dmm_adult(frag):
+    JAV_HEADERS = {
+        "User-Agent":
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:79.0) Gecko/20100101 Firefox/79.0',
+        "Referer": "http://www.dmm.co.jp/"
+    }
+    resp = requests.get(frag['url'], headers=JAV_HEADERS)
+    soup = BeautifulSoup(resp.text, 'html.parser')
+    
+    ageCheckDIVs = soup.find_all('div', {'class': 'ageCheck__btn'})
+    if ageCheckDIVs:
+        log.debug("AGE CHECK " + resp.text)
+        ageCheckLink = ageCheckDIVs[1].a.get('href')
+        JAV_HEADERS["Referer"] = resp.url
+        resp = requests.get(ageCheckLink, headers=JAV_HEADERS)
+        soup = BeautifulSoup(resp.text, 'html.parser')
+    
+    scene = {}
+    scene['performers'] = []
+    scene['tags'] = []
+
+    scene['title'] = soup.find('h1', {'id': 'title'}).text
+    scene['details'] = soup.find('p', {'class': 'mg-b20'}).text
+
+    infobox = soup.find('table', {'class': 'mg-b20'})
+    for tr in infobox.find_all('tr'):
+        label = tr.find('td', {'class': 'nw'})
+        if not label:
+            continue
+        if '発売日' in label.text or '配信開始日' in label.text or '商品発売日' in label.text:
+            date = tr.find('td', align=False).text.strip().replace('/', '-')
+            if not date == '----':
+                scene['date'] = date
+        if '出演者' in label.text:
+            for a in tr.find('td', align=False).find_all('a'):
+                scene['performers'].append({'name': a.text})
+        if '監督' in label.text:
+            scene['director'] = tr.find('td', align=False).text
+            if scene['director'] == '----':
+                del scene['director']
+        if 'メーカー' in label.text:
+            scene['studio'] = {'name': tr.find('td', align=False).text}
+        if 'ジャンル' in label.text:
+            for a in tr.find('td', align=False).find_all('a'):
+                scene['tags'].append({'name': a.text})
+        if '品番' in label.text:
+            scene['code'] = tr.find('td', align=False).text
+
+    if sample_video := soup.find('div', {'id': 'sample-video'}):
+        if a := sample_video.a:
+            scene['image'] = a.get('href')
+    # scene['image'] = soup.find('a', {'name': 'package-image'})['href']
 
     return scene
 
@@ -473,11 +541,6 @@ def scrape_scene_by_caribpr(frag):
     }
 
     log.info(f'Requesting caribpr {frag["url"]}')
-
-    # session = get_legacy_session()
-
-    session = requests.Session()
-    session.mount(frag["url"], CustomSslContextHttpAdapter())
 
     resp = requests.get(frag['url'], headers=JAV_HEADERS, timeout=10000)
     soup = BeautifulSoup(resp.content, 'html.parser', from_encoding="euc-jp")
@@ -712,54 +775,57 @@ def scrape_scene(frag):
             title = match.group(1) + "_" + match.group(2)
         if 'Carib' in title:
             title = match.group(1) + "-" + match.group(2)
-        log.info('REFORMAT TITLE %s ' % title)
+        log.info('REFORMAT TITLE T1 %s ' % title)
 
-    if match := re.search('\[?NoDRM\]?-([a-zA-Z]+)(?:00)?(\d{3})', title):
+    if match := re.search('\[?NoDRM\]?-([a-zA-Z]+)(?:00|-)?(\d{3})', title):
         title = match.group(1) + '-' + match.group(2)
-        log.info('REFORMAT TITLE %s ' % title)
-    if match := re.search('\[?NoDRM\]?-(\d*[a-zA-Z]+)(?:00)?(\d{3})', title):
+        log.info('REFORMAT TITLE T2 %s ' % title)
+    if match := re.search('\[?NoDRM\]?-(\d*[a-zA-Z]+)(?:00|-)?(\d{3})', title):
         title = match.group(1) + match.group(2)
-        log.info('REFORMAT TITLE %s ' % title)
+        log.info('REFORMAT TITLE T3 %s ' % title)
     if match := re.search('([a-zA-Z]+)(?:00)?(\d{3})(?:\.|hhb)', title):
         title = match.group(1) + match.group(2)
-        log.info('REFORMAT TITLE %s ' % title)
+        log.info('REFORMAT TITLE T4 %s ' % title)
     if match := re.search('h_\d+([a-zA-Z]+)00?(\d+)', title):   #h_068mxgs00009
         title = match.group(1) + '-' + match.group(2)
-        log.info('REFORMAT TITLE %s ' % title)
-    if match := re.fullmatch('(\w+)-(\d+)-C\.\w+', title):
+        log.info('REFORMAT TITLE T5 %s ' % title)
+
+    if match := re.fullmatch('(\w+)-(\d+)-U?C\.\w+', title):
         title = '%s%s' % (match.group(1), match.group(2))
         search_titles.append('%s-%s' % (match.group(1), match.group(2)))
-        log.info('REFORMAT TITLE %s ' % title)
+        log.info('REFORMAT TITLE T6 %s ' % title)
     elif match := re.fullmatch('[\s\d]*(\w+)[\s\-]*(\d+)\s*.*?([A-H])\.\w+', title):
         title = '%s%s' % (match.group(1), match.group(2))
         part = chr(ord(match.group(3)) - (ord('A') - ord('1')))
-        log.info('REFORMAT TITLE %s %s' % (title, part))
+        log.info('REFORMAT TITLE T7 %s %s' % (title, part))
     elif match := re.match('[\s\d]*(\w+)[\s\-]*(\d+)\s+', title):
         title = '%s%s' % (match.group(1), match.group(2))
         search_titles.append('%s-%s' % (match.group(1), match.group(2)))
-        log.info('REFORMAT TITLE %s ' % title)
+        log.info('REFORMAT TITLE T8 %s ' % title)
     elif match := re.match('\d+-\d+-\d+\s+(\w+)[\s\-]*(\d+)', title):
         title = '%s%s' % (match.group(1), match.group(2))
         search_titles.append('%s-%s' % (match.group(1), match.group(2)))
-        log.info('REFORMAT TITLE %s ' % title)
+        log.info('REFORMAT TITLE T9 %s ' % title)
 
     match = re.search('^[Cc]arib[^\d]+(\d{6})[^\d](\d{3})', title)
     if match:
         title = match.group(1) + "-" + match.group(2)
-        log.info('REFORMAT TITLE %s ' % title)
+        log.info('REFORMAT TITLE TA%s ' % title)
 
     match = re.search('^(\w+[\s-]\d+)', title)
     if match:
         title = match.group(1).replace(' ', '-')
-        log.info('REFORMAT TITLE %s ' % title)
+        log.info('REFORMAT TITLE TB%s ' % title)
 
     match = re.search('^([a-zA-Z]+)(\d+)(?:[\._]|[A-Z]\.)', title)
     if match:
         title = (match.group(1) + '-' + match.group(2))
-        log.info('REFORMAT TITLE %s ' % title)
+        log.info('REFORMAT TITLE TC%s ' % title)
     
     
     search_titles.append(title)
+    if match := re.fullmatch(r'([a-zA-Z]+)([0-9]+)', title):
+        search_titles.append(match.group(1) + '-' + match.group(2))
 
     for title in search_titles:
         title = title.lower()
@@ -1141,6 +1207,8 @@ def main():
             print(json.dumps([{'url': frag['name']}]))
         elif 'https://www.dmm.com/' in frag['name']:
             print(json.dumps([{'url': frag['name']}]))
+        elif 'https://www.dmm.co.jp/' in frag['name']:
+            print(json.dumps([{'url': frag['name']}]))
         elif 'https://www.caribbeancompr.com/' in frag['name']:
             print(json.dumps([{'url': frag['name']}]))
         elif 'https://www.caribbeancom.com/' in frag['name']:
@@ -1176,6 +1244,10 @@ def main():
                 scene = scrape_scene_by_dmm({'url': url})
                 result = json.dumps(scene)
                 print(result)
+            if 'dmm.co.jp' in url:
+                scene = scrape_scene_by_dmm_adult({'url': url})
+                result = json.dumps(scene)
+                print(result)
             if 'caribbeancompr.com' in url:
                 scene = scrape_scene_by_caribpr({'url': url})
                 result = json.dumps(scene)
@@ -1200,6 +1272,10 @@ def main():
             print(result)
         if 'dmm.com' in frag['url']:
             scene = scrape_scene_by_dmm(frag)
+            result = json.dumps(scene)
+            print(result)
+        if 'dmm.co.jp' in frag['url']:
+            scene = scrape_scene_by_dmm_adult(frag)
             result = json.dumps(scene)
             print(result)
         if 'caribbeancompr.com' in frag['url']:
