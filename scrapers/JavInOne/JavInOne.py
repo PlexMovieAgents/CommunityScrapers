@@ -315,7 +315,7 @@ def scrape_scene_by_javlibrary(frag):
     
     for genre in soup.find_all('span', {'class': 'genre'}):
         tags.append({
-            'name': genre.a.get_text()
+            'name': genre.a.get_text().replace('、', '・')
         })
     scene['tags'] = tags
 
@@ -450,7 +450,7 @@ def scrape_scene_by_dmm_adult(frag):
     scene['tags'] = []
 
     scene['title'] = soup.find('h1', {'id': 'title'}).text
-    scene['details'] = soup.find('p', {'class': 'mg-b20'}).text
+    scene['details'] = soup.find('p', {'class': 'mg-b20'}).text.strip()
 
     infobox = soup.find('table', {'class': 'mg-b20'})
     for tr in infobox.find_all('tr'):
@@ -581,7 +581,7 @@ def scrape_scene_by_caribpr(frag):
 
     return scene
 
-def scrape_scene_by_url(scene):
+def scrape_scene_by_wapdb(scene):
     base_site = 'http://warashi-asian-pornstars.fr'
     
     url = scene['url']
@@ -655,7 +655,6 @@ def scrape_scene_by_url(scene):
     
     scene['code'] = dmm_cid
     
-
     if date:
         scene['date'] = date
     if director:
@@ -741,6 +740,12 @@ def scrape_scene_by_url(scene):
 
     scene['title'] = title
 
+    dmm_url = f'https://www.dmm.co.jp/mono/dvd/-/detail/=/cid={dmm_cid}/'
+    dmm_scene = scrape_scene_by_dmm_adult({'url': dmm_url})
+    if dmm_details := dmm_scene.get('details'):
+        scene['details'] = dmm_details
+        scene['urls'] = [url, dmm_url]
+
     log.info("Final info: %s" % json.dumps(scene))
     return scene
 
@@ -753,11 +758,7 @@ def scrape_scene(frag):
     search_titles = []
 
     title = frag['title']
-
-    if url := frag.get('url'):
-        log.info('Scrape by URL: %s' % url)
-        return scrape_scene_by_url(frag)
-
+    
     import re
 
     log.info('******SEARCH WAPdb CALLED*******')
@@ -907,7 +908,7 @@ def scrape_scene(frag):
                 
                     frag['url'] = url
 
-                    scene = scrape_scene_by_url(frag)
+                    scene = scrape_scene_by_wapdb(frag)
                     return scene
                 else:
                     log.warning(f'Failed to match {title} with bandid={bandid} or curtitle={curtitle}')
@@ -1179,6 +1180,36 @@ def search_scene(frag):
 
     return merged_results
 
+def scrape_scene_by_url(frag):
+    if 'warashi' in frag['url']:
+        scene = scrape_scene_by_wapdb(frag)
+    if 'javlibrary' in frag['url']:
+        scene = scrape_scene_by_javlibrary(frag)
+    if 'jav321' in frag['url']:
+        scene = scrape_scene_by_jav321(frag)
+    if 'dmm.com' in frag['url']:
+        scene = scrape_scene_by_dmm(frag)
+    if 'dmm.co.jp' in frag['url']:
+        scene = scrape_scene_by_dmm_adult(frag)
+    if 'caribbeancompr.com' in frag['url']:
+        scene = scrape_scene_by_caribpr(frag)
+    if 'caribbeancom.com' in frag['url']:
+        scene = scrape_scene_by_carib(frag)
+
+    performers = scene.get('performers')
+    tags = scene.get('tags')
+
+    if len(performers) > 1:
+        filtered_tags = [tag for tag in tags if 'レズ' in tag['name'] or 'ベスト' in tag['name']]
+        if not filtered_tags:
+            tags.append({
+                'name': '共演作品'
+            })
+        pass
+
+    log.info("****scrape_scene_by_url****" + json.dumps(scene))
+    return scene
+
 def main():
     check_compat()
     # workaround for cp1252
@@ -1195,9 +1226,24 @@ def main():
         result = json.dumps(performer)
         print(result)
     if arg == 'sceneByFragment':
-        scene = scrape_scene(frag)
-        result = json.dumps(scene)
-        print(result)
+        if url := frag.get('url'):
+            for key, value in os.environ.items():
+                log.debug(f'ENV {key}: {value}')
+            log.info('sceneByFragment Scrape by URL: %s' % json.dumps(frag))
+
+            #return [scrape_scene_by_url(frag)]
+            # result = scrape_scene_by_wapdb(frag)
+            scene = scrape_scene_by_url(frag)
+            # scene['performers'].extend([p for p in frag['performers'] if not p in scene['performers']])
+            # scene['tags'].extend([t for t in frag['tags'] if not t in scene['tags']])
+
+            result = json.dumps(scene)
+            log.info("scrape_scene url result: " + result)
+            print(result)
+        else:
+            scene = scrape_scene(frag)
+            result = json.dumps(scene)
+            print(result)
     if arg == 'sceneByName':
         if 'http://warashi-asian-pornstars.fr/ja/s-4-0/' in frag['name']:
             print(json.dumps([{'url': frag['name']}]))
@@ -1223,72 +1269,22 @@ def main():
             print(result)
     if arg == 'sceneByQueryFragment':
         if 'warashi' in frag['url']:
-            scene = scrape_scene_by_url(frag)
+            scene = scrape_scene_by_wapdb(frag)
             result = json.dumps(scene)
             print(result)
         
         for url in frag['urls']:
-            if 'metadataapi' in url:
-                scene = get_metadata_api(url)
-                result = json.dumps(scene)
-                print(result)
-            if 'javlibrary' in url:
-                scene = scrape_scene_by_javlibrary({'url': url})
-                result = json.dumps(scene)
-                print(result)
-            if 'jav321' in url:
-                scene = scrape_scene_by_jav321({'url': url})
-                result = json.dumps(scene)
-                print(result)
-            if 'dmm.com' in url:
-                scene = scrape_scene_by_dmm({'url': url})
-                result = json.dumps(scene)
-                print(result)
-            if 'dmm.co.jp' in url:
-                scene = scrape_scene_by_dmm_adult({'url': url})
-                result = json.dumps(scene)
-                print(result)
-            if 'caribbeancompr.com' in url:
-                scene = scrape_scene_by_caribpr({'url': url})
-                result = json.dumps(scene)
-                print(result)
-            if 'caribbeancom.com' in url:
-                scene = scrape_scene_by_carib({'url': url})
-                result = json.dumps(scene)
-                print(result)
+            scene = scrape_scene_by_url({'url': url})
+            result = json.dumps(scene)
+            print(result)
     if arg == 'sceneByURL':
         log.info(f'sceneByURL {frag}')
-        if 'warashi' in frag['url']:
-            scene = scrape_scene_by_url(frag)
-            result = json.dumps(scene)
-            print(result)
-        if 'javlibrary' in frag['url']:
-            scene = scrape_scene_by_javlibrary(frag)
-            result = json.dumps(scene)
-            print(result)
-        if 'jav321' in frag['url']:
-            scene = scrape_scene_by_jav321(frag)
-            result = json.dumps(scene)
-            print(result)
-        if 'dmm.com' in frag['url']:
-            scene = scrape_scene_by_dmm(frag)
-            result = json.dumps(scene)
-            print(result)
-        if 'dmm.co.jp' in frag['url']:
-            scene = scrape_scene_by_dmm_adult(frag)
-            result = json.dumps(scene)
-            print(result)
-        if 'caribbeancompr.com' in frag['url']:
-            scene = scrape_scene_by_caribpr(frag)
-            result = json.dumps(scene)
-            print(result)
-        if 'caribbeancom.com' in frag['url']:
-            scene = scrape_scene_by_carib(frag)
-            result = json.dumps(scene)
-            print(result)
+        scene = scrape_scene_by_url(frag)
+        result = json.dumps(scene)
+        print(result)
     if arg == 'movieByURL':
         frag['is_movie'] = True
-        scene = scrape_scene_by_url(frag)
+        scene = scrape_scene_by_wapdb(frag)
         result = json.dumps(scene)
         print(result)
 
