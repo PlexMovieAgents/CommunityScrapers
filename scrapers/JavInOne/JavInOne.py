@@ -275,14 +275,15 @@ def get_metadata_api(url):
         log.warning(f'Fallback failed with {str(e)}')
         pass
 
-def scrape_scene_by_javlibrary(frag):
-    JAV_HEADERS = {
-        "User-Agent":
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:79.0) Gecko/20100101 Firefox/79.0',
-        "Referer": "http://www.javlibrary.com/"
-    }
-    resp = requests.get(frag['url'], headers=JAV_HEADERS)
-    soup = BeautifulSoup(resp.text, 'html.parser')
+def scrape_scene_by_javlibrary(frag, soup = None):
+    if not soup:
+        JAV_HEADERS = {
+            "User-Agent":
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:79.0) Gecko/20100101 Firefox/79.0',
+            "Referer": "http://www.javlibrary.com/"
+        }
+        resp = requests.get(frag['url'], headers=JAV_HEADERS)
+        soup = BeautifulSoup(resp.text, 'html.parser')
 
     title_with_id = soup.find('h3', {'class': "post-title"}).a.get_text()
     id = soup.find('div', {'id': 'video_id'}).find('td', {'class': 'text'}).get_text()
@@ -318,6 +319,12 @@ def scrape_scene_by_javlibrary(frag):
             'name': genre.a.get_text().replace('、', '・')
         })
     scene['tags'] = tags
+
+    try:
+        scene = fulfill_scene_by_dmm_cid(id.lower(), scene)
+        scene['urls'].insert(0, frag['url'])
+    except:
+        pass
 
     return scene
 
@@ -434,6 +441,7 @@ def scrape_scene_by_dmm_adult(frag):
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:79.0) Gecko/20100101 Firefox/79.0',
         "Referer": "http://www.dmm.co.jp/"
     }
+    log.info(f'scrape scene by dmm url {frag["url"]}')
     resp = requests.get(frag['url'], headers=JAV_HEADERS)
     soup = BeautifulSoup(resp.text, 'html.parser')
     
@@ -442,6 +450,7 @@ def scrape_scene_by_dmm_adult(frag):
         log.debug("AGE CHECK " + resp.text)
         ageCheckLink = ageCheckDIVs[1].a.get('href')
         JAV_HEADERS["Referer"] = resp.url
+        log.info(f'scrape scene by dmm url age checked {ageCheckLink}')
         resp = requests.get(ageCheckLink, headers=JAV_HEADERS)
         soup = BeautifulSoup(resp.text, 'html.parser')
     
@@ -450,7 +459,14 @@ def scrape_scene_by_dmm_adult(frag):
     scene['tags'] = []
 
     scene['title'] = soup.find('h1', {'id': 'title'}).text
-    scene['details'] = soup.find('p', {'class': 'mg-b20'}).text.strip()
+    for detail_node in soup.find_all('p', {'class': 'mg-b20'}) + soup.find_all('div', {'class': 'mg-b20'}):
+        detail_node_text = detail_node.text
+        if '価格は全て税込み表示です' in detail_node_text:
+            continue
+        if 'イメージを拡大' in detail_node_text:
+            continue
+        scene['details'] = detail_node_text.strip()
+        break
 
     infobox = soup.find('table', {'class': 'mg-b20'})
     for tr in infobox.find_all('tr'):
@@ -740,13 +756,45 @@ def scrape_scene_by_wapdb(scene):
 
     scene['title'] = title
 
-    dmm_url = f'https://www.dmm.co.jp/mono/dvd/-/detail/=/cid={dmm_cid}/'
-    dmm_scene = scrape_scene_by_dmm_adult({'url': dmm_url})
-    if dmm_details := dmm_scene.get('details'):
-        scene['details'] = dmm_details
-        scene['urls'] = [url, dmm_url]
+    try:
+        scene = fulfill_scene_by_dmm_cid(dmm_cid, scene)
+        scene['urls'].insert(0, url)
+    except:
+        pass
 
     log.info("Final info: %s" % json.dumps(scene))
+    return scene
+
+def fulfill_scene_by_dmm_cid(cid, scene):
+    digital_cid = cid
+    if match := re.match(r'^(\w+)-0(\d{3})$', cid):
+        cid = match.group(1) + match.group(2)
+        digital_cid = match.group(1) + '00' + match.group(2)
+    else:
+        digital_cid = cid.replace("-", "00")
+        cid = cid.replace("-", "")
+    
+    if not 'urls' in scene:
+        scene['urls'] = []
+
+    try:
+        dmm_url = f'https://www.dmm.co.jp/mono/dvd/-/detail/=/cid={cid}/'
+        dmm_scene = scrape_scene_by_dmm_adult({'url': dmm_url})
+        if dmm_details := dmm_scene.get('details'):
+            scene['details'] = dmm_details
+            scene['urls'].append(dmm_url)
+    except:
+        pass
+    
+    try:
+        dmm_url = f'https://www.dmm.co.jp/digital/videoa/-/detail/=/cid={digital_cid}/'
+        dmm_scene = scrape_scene_by_dmm_adult({'url': dmm_url})
+        if dmm_details := dmm_scene.get('details'):
+            scene['details'] = dmm_details
+            scene['urls'].append(dmm_url)
+    except:
+        pass
+
     return scene
 
 def scrape_scene(frag):
@@ -792,36 +840,42 @@ def scrape_scene(frag):
         log.info('REFORMAT TITLE T5 %s ' % title)
 
     if match := re.fullmatch('(\w+)-(\d+)-U?C\.\w+', title):
-        title = '%s%s' % (match.group(1), match.group(2))
+        title = f'{match.group(1)}{match.group(2)}'
         search_titles.append('%s-%s' % (match.group(1), match.group(2)))
         log.info('REFORMAT TITLE T6 %s ' % title)
     elif match := re.fullmatch('[\s\d]*(\w+)[\s\-]*(\d+)\s*.*?([A-H])\.\w+', title):
-        title = '%s%s' % (match.group(1), match.group(2))
+        title = f'{match.group(1)}{match.group(2)}'
         part = chr(ord(match.group(3)) - (ord('A') - ord('1')))
         log.info('REFORMAT TITLE T7 %s %s' % (title, part))
+    elif match := re.match(r'[\s\d]*(\w+)[\s\-]*(\d+)\s+.+?-(\d+)\.', title):
+        title = f'{match.group(1)}{match.group(2)}'
+        part = match.group(3)
+        search_titles.append('%s-%s' % (match.group(1), match.group(2)))
+        log.info('REFORMAT TITLE T8-1 %s ' % title)
     elif match := re.match('[\s\d]*(\w+)[\s\-]*(\d+)\s+', title):
-        title = '%s%s' % (match.group(1), match.group(2))
+        title = f'{match.group(1)}{match.group(2)}'
         search_titles.append('%s-%s' % (match.group(1), match.group(2)))
         log.info('REFORMAT TITLE T8 %s ' % title)
     elif match := re.match('\d+-\d+-\d+\s+(\w+)[\s\-]*(\d+)', title):
-        title = '%s%s' % (match.group(1), match.group(2))
+        title = f'{match.group(1)}{match.group(2)}'
         search_titles.append('%s-%s' % (match.group(1), match.group(2)))
         log.info('REFORMAT TITLE T9 %s ' % title)
 
-    match = re.search('^[Cc]arib[^\d]+(\d{6})[^\d](\d{3})', title)
-    if match:
+    if match := re.search('^[Cc]arib[^\d]+(\d{6})[^\d](\d{3})', title):
         title = match.group(1) + "-" + match.group(2)
-        log.info('REFORMAT TITLE TA%s ' % title)
+        log.info('REFORMAT TITLE TA %s ' % title)
 
-    match = re.search('^(\w+[\s-]\d+)', title)
-    if match:
+    if match := re.search(r'^(\w+[\s-]\d+)[\s-](?:CD|cd|PT|pt)(\d+)', title):
         title = match.group(1).replace(' ', '-')
-        log.info('REFORMAT TITLE TB%s ' % title)
+        part = match.group(2)
+        log.info('REFORMAT TITLE TB %s %s' % (title, part))
+    elif match := re.search(r'^(\w+[\s-]\d+)', title):
+        title = match.group(1).replace(' ', '-')
+        log.info('REFORMAT TITLE TC %s ' % title)
 
-    match = re.search('^([a-zA-Z]+)(\d+)(?:[\._]|[A-Z]\.)', title)
-    if match:
+    if match := re.search('^([a-zA-Z]+)(\d+)(?:[\._]|[A-Z]\.)', title):
         title = (match.group(1) + '-' + match.group(2))
-        log.info('REFORMAT TITLE TC%s ' % title)
+        log.info('REFORMAT TITLE TD %s ' % title)
     
     
     search_titles.append(title)
@@ -921,21 +975,37 @@ def scrape_scene(frag):
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:79.0) Gecko/20100101 Firefox/79.0',
             "Referer": "http://www.javlibrary.com/"
         }
-        scenes = []
         for title in search_titles:
             url = 'https://www.javlibrary.com/ja/vl_searchbyid.php?list&keyword=%s' % urllib.parse.quote(title)
-            resp = requests.get(url, headers=JAV_HEADERS)
-            soup = BeautifulSoup(resp.text, 'html.parser')
+            log.info("fallback to javlibrary search " + url)
 
-            for video in soup.find_all('div', {'class': 'videotextlist'}):
-                a = video.find('a')
-                scenes.append({
+            resp = requests.get(url, headers=JAV_HEADERS)
+            log.debug(f'Fallback javlibrary with {resp.status_code}')
+            log.debug(f'Fallback javlibrary with {resp.text}')
+            
+            soup = BeautifulSoup(resp.text, 'html.parser')
+            
+            if 'javlibrary.com/ja/?v=' in resp.url:
+                frag['url'] = resp.url
+                if part:
+                    frag['title'] += ' - pt%s' % part
+                    frag['url'] += "#pt%s" % part
+                return scrape_scene_by_javlibrary(frag, soup)
+            
+            video = soup.find('table', {'class': 'videotextlist'})
+
+            for a in video.find_all('a', id=False):
+                jav_entry = {
                     'title': a['title'],
                     'url': 'https://www.javlibrary.com/ja/' + a['href'].replace('./', '', 1)
-                })
-        
-        if scenes:
-            return scenes
+                }
+                if part:
+                    jav_entry['title'] += ' - pt%s' % part
+                    jav_entry['url'] += "#pt%s" % part
+                try:
+                    return scrape_scene_by_javlibrary(jav_entry)
+                except:
+                    pass
     except Exception as e:
         log.warning(f'Fallback javlibrary failed with {str(e)}')
 
@@ -1019,7 +1089,10 @@ def search_scene(frag):
     try:
         query = frag['name']
         part = None
-        if match := re.fullmatch('(.+?) - pt(\d+)', query):
+        if match := re.fullmatch(r'(.+?) - pt(\d+)', query):
+            query = match.group(1)
+            part = match.group(2)
+        elif match := re.fullmatch(r'(.+?) cd(\d+)', query):
             query = match.group(1)
             part = match.group(2)
         elif match := re.fullmatch('\s*(\w+)\s*(\d+)\s*.*?([a-h])', query):
@@ -1129,20 +1202,34 @@ def search_scene(frag):
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:79.0) Gecko/20100101 Firefox/79.0',
             "Referer": "http://www.javlibrary.com/"
         }
-        url = 'https://www.javlibrary.com/ja/vl_searchbyid.php?list&keyword=%s' % urllib.parse.quote(frag['name'])
-        resp = requests.get(url, headers=JAV_HEADERS)
-        log.debug(f'Fallback javlibrary with {resp.status_code}')
-        log.debug(f'Fallback javlibrary with {resp.text}')
+        url = 'https://www.javlibrary.com/ja/vl_searchbyid.php?list&keyword=%s' % urllib.parse.quote(query)
+        log.info("fallback to javlibrary search " + url)
+
+        resp = requests.get(url, headers=JAV_HEADERS, allow_redirects=False)
+        log.info(f'Fallback javlibrary with {resp.status_code}')
+        # log.debug(f'Fallback javlibrary with {resp.text}')
 
         soup = BeautifulSoup(resp.text, 'html.parser')
 
-        video = soup.find('table', {'class': 'videotextlist'})
-
-        for a in video.find_all('a', id=False):
-            merged_results.append({
-                'title': a['title'],
-                'url': 'https://www.javlibrary.com/ja/' + a['href'].replace('./', '', 1)
-            })
+        if resp.status_code == 302 and './?v=' in resp.headers.get('Location', ''):
+            redirect_url = resp.headers['Location']
+            jav_entry = {
+                'url': 'https://www.javlibrary.com/ja/' + redirect_url.replace('./', '', 1)
+            }
+            if part:
+                jav_entry['url'] += "#pt%s" % part
+            merged_results.append(jav_entry)
+        else:
+            video = soup.find('table', {'class': 'videotextlist'})
+            for a in video.find_all('a', id=False):
+                jav_entry = {
+                    'title': a['title'],
+                    'url': 'https://www.javlibrary.com/ja/' + a['href'].replace('./', '', 1)
+                }
+                if part:
+                    jav_entry['title'] += ' - pt%s' % part
+                    jav_entry['url'] += "#pt%s" % part
+                merged_results.append(jav_entry)
         
     except Exception as e:
         log.warning(f'Fallback javlibrary failed with {str(e)}')
@@ -1205,7 +1292,6 @@ def scrape_scene_by_url(frag):
             tags.append({
                 'name': '共演作品'
             })
-        pass
 
     log.info("****scrape_scene_by_url****" + json.dumps(scene))
     return scene
@@ -1242,6 +1328,12 @@ def main():
             print(result)
         else:
             scene = scrape_scene(frag)
+            if len(scene['performers']) > 1:
+                filtered_tags = [tag for tag in scene['tags'] if 'レズ' in tag['name'] or 'ベスト' in tag['name']]
+                if not filtered_tags:
+                    scene['tags'].append({
+                        'name': '共演作品'
+                    })
             result = json.dumps(scene)
             print(result)
     if arg == 'sceneByName':
