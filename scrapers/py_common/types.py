@@ -42,7 +42,6 @@ class ScrapedPerformer(TypedDict, total=False):
     aliases: str
     "Must be comma-delimited in order to be parsed correctly"
     tags: list[ScrapedTag]
-    "Tags will only "
     image: str
     images: list[str]
     "Images can be URLs or base64-encoded images"
@@ -56,7 +55,7 @@ class ScrapedStudio(TypedDict, total=False):
     image: str
 
 class ScrapedMovie(TypedDict, total=False):
-    name: Required[str]
+    name: str
     date: str
     "Must be in the format YYYY-MM-DD"
     duration: str
@@ -67,11 +66,11 @@ class ScrapedMovie(TypedDict, total=False):
     rating: str
     front_image: str
     back_image: str
-    URL: str
+    url: str
     aliases: str
 
 class ScrapedGallery(TypedDict, total=False):
-    title: Required[str]
+    title: str
     details: str
     url: str
     urls: list[str]
@@ -80,6 +79,8 @@ class ScrapedGallery(TypedDict, total=False):
     studio: ScrapedStudio
     tags: list[ScrapedTag]
     performers: list[ScrapedPerformer]
+    code: str
+    photographer: str
 
 class ScrapedScene(TypedDict, total=False):
     title: str
@@ -111,4 +112,7 @@ class SceneSearchResult(TypedDict, total=False):
     date: str
     "Must be in the format YYYY-MM-DD"
     image: str
+    "Image can be a URL or base64-encoded image"
+    tags: list[ScrapedTag]
+    performers: list[ScrapedPerformer]
     studio: ScrapedStudio

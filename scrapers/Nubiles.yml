@@ -20,6 +20,7 @@ sceneByURL:
       - driverxxx.com/video/watch/
       - familyswap.xxx/video/watch/
       - imnotyourmommy.com/video/watch/
+      - lilsis.com/video/watch/
       - momlover.com/video/watch/
       - momsboytoy.com/video/watch/
       - momsfamilysecrets.com/video/watch/
@@ -171,6 +172,7 @@ xPathScrapers:
               # Remove - S11:E11 part
               - regex: \s-\sS\d+:E\d+$
                 with:
+      Code: *codeSelector
       Details: *detailsAttr
       Date: *dateAttr
       Performers: *performersAttr
@@ -216,6 +218,7 @@ xPathScrapers:
 
     scene:
       Title: *titleSelector
+      Code: *codeSelector
       Date: *dateAttr
       Details: *detailsAttr
       Performers: *performersAttr
@@ -231,9 +234,10 @@ xPathScrapers:
 
     gallery:
       Title: *galleryTitleAttr
+      Code: *codeSelector
       Details: *detailsAttr
       Date: *dateAttr
       Performers: *performersAttr
       Tags: *tagsAttr
       Studio: *studioFromTitleAttr
-# Last Updated September 28, 2023
+# Last Updated December 27, 2023

@@ -36,17 +36,17 @@ xPathScrapers:
 
   sceneScraper:
     common:
-      $scene: (//div[@id="theatre-row"]/div)[1]
+      $scene: //div[@class="update-info-container"]
     scene:
       Title: $scene//h2
       Date:
-        selector: ($scene//p[@class="update-info-line regular"]/b)[1]/text()
+        selector: //div[@id="theatre-row"]//span[@class="description-releasedate"]/text()
         postProcess:
-          - parseDate: "02.01.2006"
+          - parseDate: 02-01-2006
       Details:
         selector: $scene//p[contains(@class,"ap-limited-description-text")]
       Image:
-        selector: $scene//video/@poster | $scene//div[contains(@class, "video-wrapper")]//div[contains(@style,"background-image:") and not(contains(@style,"player-placeholder.gif"))]/@style
+        selector: //div[@id="theatre-row"]//video/@poster | //div[@id="theatre-row"]//div[contains(@class, "video-wrapper")]//div[contains(@style,"background-image:") and not(contains(@style,"player-placeholder.gif"))]/@style
         postProcess:
           - replace:
               # Sometimes they put the URL in quotes, sometimes they just don't
@@ -68,4 +68,4 @@ xPathScrapers:
           split: ", "
       Performers:
         Name: $scene//b[contains(.,"Performer")]/following-sibling::a/text()
-# Last Updated September 13, 2023
+# Last Updated February 22, 2023
