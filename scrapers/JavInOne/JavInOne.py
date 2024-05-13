@@ -1,3 +1,5 @@
+# type: ignore
+
 import json
 import io
 import sys
@@ -514,6 +516,7 @@ def scrape_scene_by_carib(frag):
     scene = {}
     scene['performers'] = []
     scene['tags'] = [{'name': '無修正'}]
+    scene['urls'] = [frag['url']]
 
     movie_info = soup.find('div', {'class': 'movie-info'})
 
@@ -561,9 +564,12 @@ def scrape_scene_by_caribpr(frag):
     resp = requests.get(frag['url'], headers=JAV_HEADERS, timeout=10000)
     soup = BeautifulSoup(resp.content, 'html.parser', from_encoding="euc-jp")
     
+    log.debug("caribpr " + soup.prettify())
+
     scene = {}
     scene['performers'] = []
     scene['tags'] = [{'name': '無修正'}]
+    scene['urls'] = [frag['url']]
 
     movie_info = soup.find('div', {'class': 'movie-info'})
 
@@ -594,6 +600,135 @@ def scrape_scene_by_caribpr(frag):
     if match := re.search(r'/(\d{6}_\d{3})/', frag['url']):
         scene['code'] = match.group(1)
         scene['image'] = 'https://www.caribbeancompr.com/moviepages/' + match.group(1) + '/images/l_l.jpg'
+
+    return scene
+
+import urllib3
+import ssl
+from urllib3.util.ssl_ import create_urllib3_context
+
+class CustomHttpAdapter(requests.adapters.HTTPAdapter):
+    def init_poolmanager(self, connections, maxsize, block=False):
+        ctx = create_urllib3_context()
+        ctx.set_ciphers('DEFAULT@SECLEVEL=1')
+        ctx.load_default_certs()
+        # ctx.options |= ssl.OP_LEGACY_SERVER_CONNECT  # Enable legacy renegotiation
+        ctx.options |= ssl.OP_NO_SSLv2
+        ctx.options |= ssl.OP_NO_SSLv3
+        self.poolmanager = urllib3.poolmanager.PoolManager(
+            num_pools=connections, maxsize=maxsize,
+            block=block, ssl_context=ctx)
+
+def scrape_scene_by_1pondo(frag):
+    sid = frag['url']
+    if match := re.search('(\d{6}_\d{3})', sid):
+        sid = match.group(1)
+    else:
+        return frag
+
+    JAV_HEADERS = {
+        "User-Agent":
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:79.0) Gecko/20100101 Firefox/79.0',
+        'Referer': 'https://www.1pondo.tv/movies/' + sid + '/'
+    }
+
+    url = f'https://www.1pondo.tv/dyn/phpauto/movie_details/movie_id/{sid}.json'
+    session = requests.Session()
+    session.mount('https://', CustomHttpAdapter())
+
+    # resp = requests.get(url, headers=JAV_HEADERS, timeout=10000)
+    resp = session.get(url, headers=JAV_HEADERS, timeout=10000)
+
+    scene = {}
+    scene['performers'] = []
+    scene['tags'] = [{'name': '無修正'}]
+    scene['urls'] = [frag['url']]
+
+    scene['code'] = sid
+
+    data = resp.json()    #json.loads(resp.data)
+
+    scene['title'] = data.get('Title', '')
+    scene['details'] = data.get('Desc', '')
+    scene['date'] = data.get('Release', '')
+    # metadata.year = metadata.originally_available_at.year
+    scene['studio'] = {'name': "一本道"}
+    # metadata.original_title = sid
+    
+    try:
+        # movieActors.clearActors()
+        #actorName = data.get('Actor')
+        for actorName in data.get('ActressesJa'):
+            log.info('ACTOR ' + actorName)
+            # movieActors.addActor(actorName, portraits.get(actorName, ''))
+            scene['performers'].append({'name': actorName})
+    except Exception as e:
+        log.error('ACTOR ERROR %s' % str(e))
+        pass
+
+    try:
+        genreElems = data.get('UCNAME')
+        for genreName in genreElems:
+            # movieGenres.addGenre(genreName)
+            if re.match(r'\d+p|\d+fps', genreName):
+                continue
+            scene['tags'].append({'name': genreName})
+    except Exception as e:
+        log.error('GENRE ERROR %s' % str(e))
+        pass
+
+    # try:
+    #     avgRating = data.get('AvgRating')
+    #     metadata.rating = float(avgRating) * 2
+    #     cmtData = HTTP.Request('https://www.1pondo.tv/dyn/phpauto/new_movie_reviews/movie_id/' + sid + '.json', headers={'Referer': 'https://www.1pondo.tv/movies/' + sid + '/'}).content
+    #     cmt = json.loads(cmtData)
+    #     metadata.rating_count = len(cmt.get('Rows'))
+    # except Exception as e:
+    #     Log('RATING ERROR %s' % str(e))
+    #     pass
+
+    try:
+        backgroundUrl = data.get('ThumbUltra')
+        scene['image'] = backgroundUrl
+        # if not PAsearchSites.posterAlreadyExists(backgroundUrl,metadata):
+        #     metadata.art[backgroundUrl] = Proxy.Media(HTTP.Request(backgroundUrl, headers={'Referer': url}).content, sort_order = 1)
+
+        # imgURLs = []
+        # try:
+        #     gallery_url = "https://www.1pondo.tv/dyn/dla/json/movie_gallery/" + sid + ".json"
+        #     gallery_data = HTTP.Request(gallery_url, headers={'Referer': 'https://www.1pondo.tv/movies/' + sid + '/'}).content
+        #     gallery_json = json.loads(gallery_data)
+
+        #     for row in gallery_json.get('Rows'):
+        #         if row.get('Protected'):
+        #             break
+        #         imgSrc = 'https://www.1pondo.tv/dyn/dla/images/' + row.get('Img')
+        #         imgURLs.append(imgSrc)
+        # except Exception as e:
+        #     for img in range(1,10):
+        #         imgSrc = 'https://www.1pondo.tv/assets/sample/' + sid + '/popu/' + str(img) + '.jpg'
+        #         imgURLs.append(imgSrc)
+
+        # so = 1
+        # for imgSrc in imgURLs:
+        #     imgSrcLarge = imgSrc
+        #     Log(imgSrcLarge)
+        #     if not PAsearchSites.posterAlreadyExists(imgSrcLarge,metadata):
+        #         req = HTTP.Request(imgSrcLarge, headers={'Referer': url})
+        #         #Log('HTTP.Request %s' % str(req.headers()))
+        #         if '<html' in req.content:
+        #             Log('HTTP.Request likely not jpeg')
+        #             #Log('HTTP.Request %s' % repr(req.content))
+        #             break
+        #         if '<HTML' in req.content:
+        #             Log('HTTP.Request likely not jpeg')
+        #             #Log('HTTP.Request %s' % repr(req.content))
+        #             break
+        #         metadata.posters[imgSrcLarge] = Proxy.Preview(req.content, sort_order = so)
+        #         so = so + 1
+    except Exception as e:
+        Log('IMG ERROR %s' % str(e))
+        pass
 
     return scene
 
@@ -818,12 +953,20 @@ def scrape_scene(frag):
     #title = title.replace('20', ' ')
 
     part = None
-
+    uncen = None
     if match := re.search('^(\d{6})[^\d](\d{3})', title):
         if '1pon' in title:
             title = match.group(1) + "_" + match.group(2)
+            uncen = '1pondo'
         if 'Carib' in title:
             title = match.group(1) + "-" + match.group(2)
+            uncen = 'carib'
+        if uncen is None and re.search(r'^\d{6}-\d{3}\.', title):
+            title = match.group(1) + "-" + match.group(2)
+            uncen = 'carib'     ## fallback to carib
+        if uncen is None and re.search(r'^\d{6}_\d{3}\.', title):
+            title = match.group(1) + "_" + match.group(2)
+            uncen = 'caribpr'     ## fallback to caribpr
         log.info('REFORMAT TITLE T1 %s ' % title)
 
     if match := re.search('\[?NoDRM\]?-([a-zA-Z]+)(?:00|-)?(\d{3})', title):
@@ -863,7 +1006,13 @@ def scrape_scene(frag):
 
     if match := re.search('^[Cc]arib[^\d]+(\d{6})[^\d](\d{3})', title):
         title = match.group(1) + "-" + match.group(2)
-        log.info('REFORMAT TITLE TA %s ' % title)
+        log.info('REFORMAT TITLE CARIB %s ' % title)
+        uncen = 'carib'
+
+    if match := re.search('^1pon-(\d{6})_(\d{3})', title):
+        title = match.group(1) + "_" + match.group(2)
+        log.info('REFORMAT TITLE 1PON %s ' % title)
+        uncen = '1pondo'
 
     if match := re.search(r'^(\w+[\s-]\d+)[\s-](?:CD|cd|PT|pt)(\d+)', title):
         title = match.group(1).replace(' ', '-')
@@ -877,7 +1026,21 @@ def scrape_scene(frag):
         title = (match.group(1) + '-' + match.group(2))
         log.info('REFORMAT TITLE TD %s ' % title)
     
-    
+    if uncen == '1pondo':
+        frag['title'] = f'1Pondo {title}'
+        frag['url'] = f'https://www.1pondo.tv/movies/{title}/'
+        return scrape_scene_by_1pondo(frag)
+
+    if uncen == 'carib':
+        frag['title'] = f'Carib {title}'
+        frag['url'] = f'https://www.caribbeancom.com/moviepages/{title}/index.html'
+        return scrape_scene_by_carib(frag)
+
+    if uncen == 'caribpr':
+        frag['title'] = f'Caribpr {title}'
+        frag['url'] = f'https://www.caribbeancompr.com/moviepages/{title}/index.html'
+        return scrape_scene_by_caribpr(frag)
+
     search_titles.append(title)
     if match := re.fullmatch(r'([a-zA-Z]+)([0-9]+)', title):
         search_titles.append(match.group(1) + '-' + match.group(2))
@@ -1008,77 +1171,6 @@ def scrape_scene(frag):
                     pass
     except Exception as e:
         log.warning(f'Fallback javlibrary failed with {str(e)}')
-
-    return frag
-
-    #fallback to tpdb
-    try:
-        API_BASE_URL = 'https://api.metadataapi.net'
-        API_SEARCH_URL = API_BASE_URL + '/jav?parse=%s'
-        API_SCENE_URL = API_BASE_URL + '/jav/%s'
-        API_SITE_URL = API_BASE_URL + '/sites/%s'
-
-        tpdb_search_url = API_SEARCH_URL % (urllib.parse.quote(title))
-        
-        headers = {
-            'User-Agent': 'ThePornDBJAV.bundle',
-        }
-
-        headers['Authorization'] = 'Bearer %s' % 'eJqarOQyVcWUmxdHqJ8kvS7eVI1O5XT4lsIkNG0dda651c80'
-        resp = requests.get(tpdb_search_url, headers=headers, timeout=30)
-        results = resp.json()
-        for result in results['data']:
-            if result['external_id'] != title:
-                continue
-
-            log.info(f'Fallback hit with tpdb id {result["id"]}')
-
-            result['code'] = result['external_id']
-            result['studio'] = {'name': result['site']['name']}
-
-            title = result['title']
-            old_title = frag.get('title', '')
-            if match := re.search(' - pt(\d+)|(?:hhb|SD|HD|CD|cd)(\d+)', old_title):
-                result['tags'].append({'name': 'MULTIPART'})
-                if match.group(1):
-                    title = title + ' - pt' + match.group(1)
-                elif match.group(2):
-                    title = title + ' - pt' + match.group(2)
-            if match := re.search('\d+([A-H])\.', old_title):
-                result['tags'].append({'name': 'MULTIPART'})
-                title = title + ' - pt' + chr(ord(match.group(1)) - (ord('A') - ord('1')))
-            if match := re.search('\{edition-(.+?)\}', old_title):
-                result['tags'].append({'name': 'EDITION: %s' % match.group(1)})
-
-            if 'r18' in result['image']:
-                result['image'] = result.get('background', {}).get('full', '')
-
-            result['title'] = title
-            return result
-            
-            performers = []
-            for performer in entry['performers']:
-                performers.append({
-                    'name': performer['name']
-                })
-
-            scene = {
-                'title': entry['title'],
-                'details': entry['description'],
-                'code': entry['external_id'],
-                'director': entry['director'],
-                'url': API_SCENE_URL % entry['id'],
-                'date': entry['date'],
-                'image': entry['image'],
-                'studio': {'name': entry['site']['name']},
-                'performers': []
-            }
-
-            
-        # return json_decode(make_request(url, headers))
-    except Exception as e:
-        log.warning(f'Fallback failed with {str(e)}')
-        pass
 
     return frag
 
@@ -1282,6 +1374,8 @@ def scrape_scene_by_url(frag):
         scene = scrape_scene_by_caribpr(frag)
     if 'caribbeancom.com' in frag['url']:
         scene = scrape_scene_by_carib(frag)
+    if '1pondo' in frag['url']:
+        scene = scrape_scene_by_1pondo(frag)
 
     performers = scene.get('performers')
     tags = scene.get('tags')
@@ -1328,7 +1422,7 @@ def main():
             print(result)
         else:
             scene = scrape_scene(frag)
-            if len(scene['performers']) > 1:
+            if len(scene.get('performers', [])) > 1:
                 filtered_tags = [tag for tag in scene['tags'] if 'レズ' in tag['name'] or 'ベスト' in tag['name']]
                 if not filtered_tags:
                     scene['tags'].append({
