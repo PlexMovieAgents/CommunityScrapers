@@ -547,6 +547,9 @@ def scrape_scene_by_carib(frag):
     if match := re.search(r'/(\d{6}-\d{3})/', frag['url']):
         scene['code'] = match.group(1)
         scene['image'] = 'https://www.caribbeancom.com/moviepages/' + match.group(1) + '/images/l_l.jpg'
+        if md := re.search(r'(\d{2})(\d{2})(\d{2})', scene["code"]):
+            scene['date'] = f'20{md.group(3)}-{md.group(1)}-{md.group(2)}'
+
     if 'studio' not in scene:
         scene['studio'] = {'name': 'カリビアンコム'}
 
@@ -563,7 +566,7 @@ def scrape_scene_by_caribpr(frag):
 
     resp = requests.get(frag['url'], headers=JAV_HEADERS, timeout=10000)
     soup = BeautifulSoup(resp.content, 'html.parser', from_encoding="euc-jp")
-    
+
     log.debug("caribpr " + soup.prettify())
 
     scene = {}
@@ -600,7 +603,8 @@ def scrape_scene_by_caribpr(frag):
     if match := re.search(r'/(\d{6}_\d{3})/', frag['url']):
         scene['code'] = match.group(1)
         scene['image'] = 'https://www.caribbeancompr.com/moviepages/' + match.group(1) + '/images/l_l.jpg'
-
+        if md := re.search(r'(\d{2})(\d{2})(\d{2})', scene["code"]):
+            scene['date'] = f'20{md.group(3)}-{md.group(1)}-{md.group(2)}'
     return scene
 
 import urllib3
@@ -727,7 +731,7 @@ def scrape_scene_by_1pondo(frag):
         #         metadata.posters[imgSrcLarge] = Proxy.Preview(req.content, sort_order = so)
         #         so = so + 1
     except Exception as e:
-        Log('IMG ERROR %s' % str(e))
+        log.warning('IMG ERROR %s' % str(e))
         pass
 
     return scene
@@ -941,8 +945,6 @@ def scrape_scene(frag):
     search_titles = []
 
     title = frag['title']
-    
-    import re
 
     log.info('******SEARCH WAPdb CALLED*******')
 
