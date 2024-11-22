@@ -10,7 +10,7 @@ Note that some scrapers (notably [ThePornDB for Movies](./scrapers/ThePornDBMovi
 
 ## Installing scrapers
 
-With the [v0.24.0 release of Stash](https://github.com/stashapp/stash/releases/tag/v0.24.0) you no longer need to install scrapers manually: if you go to `Settings > Metadata Providers` you can find the scrapers from this repository in the `Community (stable)` feed and install them without ever needing to copy any files manually.
+With the [v0.24.0 release of Stash](https://github.com/stashapp/stash/releases/tag/v0.24.0) you no longer need to install scrapers manually: if you go to `Settings > Metadata Providers` you can find the scrapers from this repository in the `Community (stable)` feed and install them without ever needing to copy any files manually. Note that some scrapers still require [manual configuration](#manually-configured-scrapers)
 
 If you still prefer to manage your scrapers manually that is still supported as well, using the same steps as before. Manually installed scrapers and ones installed through Stash can both be used at the same time.
 
@@ -39,7 +39,7 @@ Some scrapers require external programs to function, usually [Python](https://ww
 
 Depending on your operating system you may need to install both Python and the scrapers' dependencies before they will work. For Windows users we strongly recommend installing Python using the [installers from python.org](https://www.python.org/downloads/) instead of through the Windows Store, and also installing it outside of the Users folder so it is accessible to the entire system: a commonly used option is `C:\Python312`.
 
-After installing Python you can install the most commonly used dependencies by running the following command in a terminal window:
+After installing Python you should install the most commonly used dependencies by running the following command in a terminal window:
 
 ```cmd
 python -m pip install stashapp-tools requests cloudscraper beautifulsoup4 lxml
@@ -49,9 +49,17 @@ You may need to replace `python` with `py` in the command if you are running on 
 
 If Stash does not detect your Python installation you can set the `Python executable path` in `Settings > System > Application Paths`. Note that this needs to point to the executable itself and not just the folder it is in.
 
+## Manually configured scrapers
+
+Some scrapers need extra configuration before they will work. This is unfortunate if you install them through the web interface as any updates will overwrite your changes.
+
+- [ThePornDBMovies](./scrapers/ThePornDBMovies.yml) and [ThePornDBJAV](./scrapers/ThePornDBJAV.yml) need to be edited to have your API key in them. Make sure you do not remove the `Bearer` part when you add your key.
+- Python scrapers that need to communicate with your Stash (to create markers, for example, or to search your file system) _might_ need to be configured to talk to your local Stash: by default they will use `http://localhost:9999/graphql` with no authentication to make their queries, but if your setup requires otherwise then you can find `py_common/config.ini` and set your own values.
+- Python scrapers that can be configured will (usually) create a default configuration file called `config.ini` in their respective directories the first time you run them.
+
 ## Scrapers
 
-You can find a list of sites that currently have a scraper in [SCRAPERS-LIST.md](https://github.com/stashapp/CommunityScrapers/blob/master/SCRAPERS-LIST.md)
+You can find a list of sites that currently have a scraper at https://stashapp.github.io/CommunityScrapers/
 
 :boom: For **most scrapers** you have to provide the scene/performer URL
 
@@ -74,13 +82,6 @@ For more info please check the scraping help [section](https://github.com/stasha
 
 Contributions are always welcome! Use the [Scraping Configuration](https://github.com/stashapp/stash/blob/develop/ui/v2.5/src/docs/en/Manual/ScraperDevelopment.md) help section to get started and stop by the [Discord](https://discord.gg/2TsNFKt) #scrapers channel with any questions.
 
-The last line of a scraper definition (`.yml` file) must be the last updated date, in the following format:  
-`# Last Updated Month Day, Year`  
-Month = Full month name (`October`)  
-Day = Day of month, with leading zero (`04`, `16`)  
-Year = Full year (`2020`)  
-Example: `# Last Updated October 04, 2020`
-
 ### Validation
 
 The scrapers in this repository can be validated against a schema and checked for common errors.
@@ -89,3 +90,10 @@ First, install the validator's dependencies - inside the [`./validator`](./valid
 
 Then, to run the validator, use `node validate.js` in the root of the repository.  
 Specific scrapers can be checked using: `node validate.js scrapers/foo.yml scrapers/bar.yml`
+
+#### Docker option
+Instead of NodeJS being installed, Docker can be used to run the validator
+
+```bash
+docker run --rm -v .:/app node:alpine /bin/sh -c "cd /app/validator && yarn install --silent && cd .. && node validate.js --ci""
+```

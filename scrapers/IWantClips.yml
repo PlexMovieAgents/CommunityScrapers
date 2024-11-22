@@ -24,14 +24,14 @@ sceneByQueryFragment:
 xPathScrapers:
   sceneSearch:
     scene:
-      Title: //span[@class='clip-title']/a/text()
-      URL: //span[@class='clip-title']/a/@href
-      Image: //div[@class='clip-thumb-16-9']/a/img/@src
+      Title: //div[@class='tittle-price d-flex flex-column text-ellipsis']//div[@class='content-title']//a/text()
+      URL: //div[@class='tittle-price d-flex flex-column text-ellipsis']//div[@class='content-title']//a/@href
+      Image: //div[@class='clip-thumb-16-9 visible-xs']//img[@class='lazy']/@data-original
   sceneScraper:
     common:
       $model: //a[@class="modelLink"]
     scene:
-      Title: //h1[@class="headline hidden-xs"]/text()
+      Title: //div[@class="col-md-12 col-sm-12 col-xs-12 title row-0"]/span
       URL: //link[@rel="canonical"]/@href
       Date:
         selector: //div[@class="col-xs-12 date fix"]/span/em/text()
@@ -41,7 +41,7 @@ xPathScrapers:
                 with: $1
           - parseDate: Jan 2, 2006
       Details:
-        selector: //div[@class="col-xs-12 description fix"][last()]/span/text()
+        selector: //div[@class="col-xs-12 description fix"][last()]/span
         concat: "\n\n"
       Tags:
         Name:
@@ -49,46 +49,45 @@ xPathScrapers:
           concat: ","
           postProcess:
             - replace:
-                - regex: 'Keywords:'
+                - regex: "Keywords:"
                   with: $1
-            - replace:
                 - regex: ',\s+'
                   with: ","
           split: ","
       Image:
-        selector: //div[contains(@class,'vidStuff')]//video[contains(@id,'html5_api')]/@poster | //div[contains(@class,'vidStuff')]//img/@src
+        selector: //meta[@name='og:image']/@content
         postProcess:
           - replace:
-            - regex: (\d*_.*((\.gif)|(\.mp4)))
-              with: t_$1
+              - regex: (\d*_.*((\.gif)|(\.mp4)))
+                with: t_$1
           - replace:
-            - regex: '(\.gif)|(\.mp4)'
-              with: ".jpg"
+              - regex: '(\.gif)|(\.mp4)'
+                with: ".jpg"
       Studio:
         Name: $model
       Performers:
         Name: $model
   performerScraper:
     common:
-      $author: //li[@class="ais-Hits-item"][1]//span[contains(@class,'clip-author')]
+      $sidebar: //div[@class="sideBar lg-sticky"]
     performer:
-      Name: $author
-      URL: $author/a/@href
-      Details:
-        selector: $author/a/@href
-        postProcess:
-          - replace:
-              - regex: /store/
-                with: "/home/aboutMe/"
-          - subScraper: //p
-        concat: "\n\n"
-      Image: //div[@class="sideBar"]//img[contains(@class,'avatar')]/@src
+      Name: $sidebar//div[@class="col-sm-12 profileName"]/span
+      Details: $sidebar//p
+      Image: $sidebar/div/div/img/@src
   performerSearch:
+    common:
+      $artist: //li[@class="ais-Hits-item grid-artist-item"]
     performer:
-      Name: //h5[contains(@class,'featured-store-name')]/a/text()
-      URL:
-        selector: //h5[contains(@class,'featured-store-name')]/a/@href
+      Name: $artist//h5/a/text()
+      Image: $artist//a/div/img/@src
+      URL: $artist//h5/a/@href
 
 driver:
   useCDP: true
-# Last Updated December 14, 2023
+  cookies:
+    - Cookies:
+        - Name: iwc-new-design
+          Value: "on"
+          Domain: .iwantclips.com
+          Path: /
+# Last Updated September 03, 2024

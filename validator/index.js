@@ -16,10 +16,11 @@ const safeRequire = (name) => {
   }
 };
 
-const Ajv = safeRequire('ajv');
-const betterAjvErrors = safeRequire('better-ajv-errors');
+const Ajv = safeRequire('ajv').default;
+const betterAjvErrors = safeRequire('better-ajv-errors').default;
 const chalk = safeRequire('chalk');
 const YAML = safeRequire('yaml');
+const addFormats = safeRequire('ajv-formats');
 
 // https://www.peterbe.com/plog/nodejs-fs-walk-or-glob-or-fast-glob
 function walk(directory, ext, filepaths = []) {
@@ -49,35 +50,12 @@ class Validator {
     this.schema = JSON.parse(fs.readFileSync(schemaPath, 'utf8'));
     this.ajv = new Ajv({
       // allErrors: true,
-      jsonPointers: true,
-      extendRefs: true, // should be 'fail' with ajv v7
-      strictKeywords: true,
+      ignoreKeywordsWithRef: true, // should be 'fail' with ajv v7
+      strict: true,
     });
+    addFormats(this.ajv);
 
     this.mappingPattern = /^([a-z]+)By(Fragment|Name|URL)$/;
-
-    if (!!this.ajv.getKeyword('deprecated')) {
-      this.ajv.removeKeyword('deprecated');
-    }
-
-    this.ajv.addKeyword('deprecated', {
-      validate: function v(schema, data, parentSchema, dataPath, parentData, parentPropertyName) {
-        if (schema) {
-          v.errors = [{
-            keyword: 'deprecated',
-            message: (
-              parentSchema.description
-                ? parentSchema.description.replace('[DEPRECATED] ', '')
-                : `\`${parentPropertyName}\` is deprecated`
-            ),
-            params: { keyword: 'deprecated' },
-            dataPath,
-          }];
-        }
-        return !schema;
-      },
-      valid: (this.allowDeprecations ? true : undefined),
-    });
   }
 
   run(files) {
@@ -326,28 +304,6 @@ class Validator {
         dataPath: '/stashServer',
       });
     }
-
-    xPathScrapers.forEach((name) => {
-      if (!configuredXPathScrapers.includes(name)) {
-        errors.unshift({
-          keyword: name,
-          message: `unused XPath scraper: \`${name}\``,
-          params: { keyword: name },
-          dataPath: `/xPathScrapers/${name}`,
-        });
-      }
-    });
-
-    jsonScrapers.forEach((name) => {
-      if (!configuredJsonScrapers.includes(name)) {
-        errors.unshift({
-          keyword: name,
-          message: `unused JSON scraper: \`${name}\``,
-          params: { keyword: name },
-          dataPath: `/jsonScrapers/${name}`,
-        });
-      }
-    });
 
     return errors;
   }

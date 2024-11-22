@@ -14,12 +14,18 @@ xPathScrapers:
           - replace:
               - regex: \s*\|.+
                 with: ""
+      Code:
+        selector: //video/source/@src
+        postProcess:
+          - replace:
+              - regex: .+?trailers/([A-Z]+_\d+).*
+                with: "$1"
       Date: 
         selector: //div[@class="released-views"]/span[1]/text()
         postProcess:
           - parseDate: 02/01/2006
       Details:
-        selector: //p[@class="desc"]/following-sibling::p/text()
+        selector: //p[@class="desc"]/following-sibling::p
       # look like it's the same trashy tag everytime so don't think there are useful
       #Tags:
       #  Name: 
@@ -43,4 +49,4 @@ xPathScrapers:
                 with: "$1"
       URL: //link[@rel="canonical"]/@href
 
-# Last Updated August 10, 2022
+# Last Updated November 20, 2024

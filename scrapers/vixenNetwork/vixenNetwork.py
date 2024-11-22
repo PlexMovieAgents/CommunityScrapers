@@ -3,26 +3,13 @@ import os
 import sys
 from urllib.parse import urlparse
 from datetime import datetime, timedelta
-
-# to import from a parent directory we need to add that directory to the system path
-csd = os.path.dirname(
-    os.path.realpath(__file__))  # get current script directory
-parent = os.path.dirname(csd)  #  parent directory (should be the scrapers one)
-sys.path.append(
-    parent
-)  # add parent dir to sys path so that we can import py_common from there
+import py_common.log as log
 
 try:
     import requests
 except ModuleNotFoundError:
-    print("You need to install the requests module. (https://docs.python-requests.org/en/latest/user/install/)", file=sys.stderr)
-    print("If you have pip (normally installed with python), run this command in a terminal (cmd): pip install requests", file=sys.stderr)
-    sys.exit()
-
-try:
-    import py_common.log as log
-except ModuleNotFoundError:
-    print("You need to download the folder 'py_common' from the community repo (CommunityScrapers/tree/master/scrapers/py_common)", file=sys.stderr)
+    log.error("You need to install the requests module. (https://docs.python-requests.org/en/latest/user/install/)")
+    log.error("If you have pip (normally installed with python), run this command in a terminal (cmd): pip install requests")
     sys.exit()
 
 # Max number of scenes that a site can return for the search.
@@ -42,6 +29,8 @@ MARKER_SEC_DIFF = 10
 IGNORE_TAGS = ["Sex","Feature","HD","Big Dick"]
 # Tags you want to add in the Scraper window.
 FIXED_TAGS = ""
+# Add studio default tags to scenes (eg, "Anal Sex" for "Tushy")
+USE_STUDIO_DEFAULT_TAGS = True
 # Check the SSL Certificate.
 CHECK_SSL_CERT = True
 # Local folder with JSON inside (Only used if scene isn't found from the API)
@@ -244,8 +233,9 @@ def process_chapters(scene_id, api_json):
 
 class Site:
 
-    def __init__(self, name: str):
+    def __init__(self, name: str, deftags: list):
         self.name = name
+        self.deftags = deftags
         self.id = name.replace(' ', '').upper()
         self.api = "https://www." + self.id.lower() + ".com/graphql"
         self.home = "https://www." + self.id.lower() + ".com"
@@ -308,32 +298,19 @@ class Site:
         if not query:
             return None
 
-        reattempts = 0
-        while True:
-            try:
-                response = requests.post(self.api, json=query, headers=headers)
-                if response.status_code == 200:
-                    result = response.json()
-                    if result.get("error"):
-                        for error in result["error"]["errors"]:
-                            raise Exception(f"GraphQL error: {error}")
-                    if reattempts > 0:
-                        log.debug(f"Successful query after attempt #{reattempts}")
-                    return result
-                elif response.status_code == 403:
-                    log.error("GraphQL query recieved a 403 status response")
-                    if reattempts < MAX_403_REATTEMPTS:
-                        log.debug(f"403 Reattempt {reattempts}/{MAX_403_REATTEMPTS}")
-                    else:
-                        log.error(f"Reached max 403 errors for GraphQL query")
-                        return {}
-                else:
-                    raise ConnectionError(
-                        f"GraphQL query failed:{response.status_code} - {response.content}"
-                    )
-            except Exception as err:
-                log.error(f"GraphqQL query failed {err}")
-                return None
+        try:
+            response = requests.post(self.api, json=query, headers=headers)
+            if response.status_code == 200:
+                result = response.json()
+                if result.get("error"):
+                    for error in result["error"]["errors"]:
+                        log.error(f"GraphQL error: {error}")
+                    sys.exit()
+                return result
+            response.raise_for_status()
+        except Exception as err:
+            log.error(f"GraphqQL query to '{self.api}' failed: {err}")
+            return None
 
     def parse_scene(self, response):
         scene = {}
@@ -366,6 +343,9 @@ class Site:
                     scene['tags'].append({"name": tag['name']})
             elif tags:
                 for tag in data['tags']:
+                    scene['tags'].append({"name": tag})
+            if USE_STUDIO_DEFAULT_TAGS:
+                for tag in self.deftags:
                     scene['tags'].append({"name": tag})
 
             if data.get('images'):
@@ -492,14 +472,14 @@ class Site:
 
 
 studios = {
-    Site('Blacked Raw'),
-    Site('Blacked'),
-    Site('Deeper'),
-    Site('Milfy'),
-    Site('Tushy'),
-    Site('Tushy Raw'),
-    Site('Slayed'),
-    Site('Vixen')
+    Site('Blacked Raw',['Black Male']),
+    Site('Blacked',['Black Male']),
+    Site('Deeper',[]),
+    Site('Milfy',['MILF']),
+    Site('Tushy',['Anal Sex']),
+    Site('Tushy Raw',['Anal Sex']),
+    Site('Slayed',['Lesbian Sex']),
+    Site('Vixen',[])
 }
 
 frag = json.loads(sys.stdin.read())

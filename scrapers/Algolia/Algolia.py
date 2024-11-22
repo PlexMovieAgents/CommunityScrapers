@@ -3,46 +3,34 @@ import difflib
 import json
 import os
 import re
-import sqlite3
 import sys
+import base64
 from configparser import ConfigParser, NoSectionError
 from urllib.parse import urlparse
+from py_common.deps import ensure_requirements
+from py_common import graphql
+from py_common import log
+from py_common.config import get_config
 
-# to import from a parent directory we need to add that directory to the system path
-csd = os.path.dirname(os.path.realpath(__file__))  # get current script directory
-parent = os.path.dirname(csd)  # parent directory (should be the scrapers one)
-sys.path.append(
-    parent
-)  # add parent dir to sys path so that we can import py_common from there
+ensure_requirements("bs4:beautifulsoup4", "requests")
 
-try:
-    from bs4 import BeautifulSoup as bs
-    import requests
-    import lxml
-except ModuleNotFoundError:
-    print(
-        "You need to install the following modules 'requests', 'bs4', 'lxml'.", file=sys.stderr)
-    sys.exit()
-
-try:
-    from py_common import graphql
-    from py_common import log
-except ModuleNotFoundError:
-    print(
-        "You need to download the folder 'py_common' from the community repo! (CommunityScrapers/tree/master/scrapers/py_common)",
-        file=sys.stderr)
-    sys.exit()
+from bs4 import BeautifulSoup as bs  # noqa: E402
+import requests  # noqa: E402
 
 #
 # User variables
 #
 
+config = get_config(default="""
 # File to store the Algolia API key.
-STOCKAGE_FILE_APIKEY = "Algolia.ini"
+STOCKAGE_FILE_APIKEY = Algolia.ini
+
 # Extra tag that will be added to the scene
-FIXED_TAG = ""
+FIXED_TAG =
+
 # Include non female performers
 NON_FEMALE = True
+""")
 
 # a list of main channels (`mainChannelName` from the API) to use as the studio
 # name for a scene
@@ -56,19 +44,24 @@ MAIN_CHANNELS_AS_STUDIO_FOR_SCENE = [
 # a dict with sites having movie sections
 # used when populating movie urls from the scene scraper
 MOVIE_SITES = {
+    "biphoria.com": "https://www.biphoria.com/en/movie",
     "devilsfilm": "https://www.devilsfilm.com/en/dvd",
     "devilstgirls": "https://www.devilstgirls.com/en/dvd",
     "diabolic": "https://www.diabolic.com/en/movie",
+    "falconstudios": "https://www.falconstudios.com/en/movie",
+    "ragingstallion": "https://www.ragingstallion.com/en/movie",    
     "evilangel": "https://www.evilangel.com/en/movie",
     "genderx": "https://www.genderxfilms.com/en/movie",
     "girlfriendsfilms": "https://www.girlfriendsfilms.com/en/movie",
     "lewood": "https://www.lewood.com/en/movie",
+    "hothouse": "https://www.hothouse.com/en/movie",
     "outofthefamily": "https://www.outofthefamily.com/en/dvd",
     "peternorth": "https://www.peternorth.com/en/dvd",
     "tsfactor": "https://www.tsfactor.com/en/movie/",
     "wicked": "https://www.wicked.com/en/movie",
     "zerotolerancefilms": "https://www.zerotolerancefilms.com/en/movie",
     "3rddegreefilms": "https://www.3rddegreefilms.com/en/movie",
+    "lethalhardcore": "https://www.lethalhardcore.com/en/movies",
     "roccosiffredi": "https://www.roccosiffredi.com/en/dvd",
 }
 
@@ -79,7 +72,14 @@ SERIE_USING_OVERRIDE_AS_STUDIO_FOR_SCENE = {
     "Big Boob Angels": "BAM Visions",
     "Mick's ANAL PantyHOES": "BAM Visions",
     "Real Anal Lovers": "BAM Visions",
-    "XXXmailed": "Blackmailed"
+    "XXXmailed": "Blackmailed",
+    "Secret Crush": "Secret Crush",
+    "AnalTriXXX": "AnalTriXXX",
+    "Anal.Oil.Latex.": "Latex Playtime",
+    "CuckoldSessions": "Cuckold Sessions",
+    "BlacksOnBlondes": "Blacks On Blondes",
+    "Trans-Active": "Trans-Active",
+    "AnalPlaytime": "Anal Acrobats",
 }
 
 # a list of serie (`serie_name` from the API) which should use the sitename
@@ -99,6 +99,9 @@ SITES_USING_OVERRIDE_AS_STUDIO_FOR_SCENE = {
     "Devils Gangbangs": "Devil's Gangbangs",
     "Devilstgirls": "Devil's Tgirls",
     "Dpfanatics": "DP Fanatics",
+    "FalconStudios.com": "Falcon Studios",
+    "Gloryholesecrets": "Gloryhole Secrets",
+    "RagingStallion.com": "Raging Stallion",    
     "Janedoe": "Jane Doe Pictures",
     "ModernDaySins": "Modern-Day Sins",
     "Transgressivexxx": "TransgressiveXXX",
@@ -107,7 +110,7 @@ SITES_USING_OVERRIDE_AS_STUDIO_FOR_SCENE = {
     "1000facials": "1000 Facials",
     "Immorallive": "Immoral Live",
     "Mommyblowsbest": "Mommy Blows Best",
-    "Onlyteenblowjobs": "Only Teen Blowjobs"
+    "Onlyteenblowjobs": "Only Teen Blowjobs",
 }
 
 # a list of sites (`sitename_pretty` from the API) which should pick out the
@@ -117,8 +120,12 @@ SITES_USING_OVERRIDE_AS_STUDIO_FOR_SCENE = {
 SITES_USING_SITENAME_AS_STUDIO_FOR_SCENE = [
     "ChaosMen",
     "Devil's Film",
+    "Evil Angel",
+    "FalconStudios.com",
+    "RagingStallion.com",    
     "GenderXFilms",
     "Give Me Teens",
+    "Gloryholesecrets",
     "Hairy Undies",
     "Lesbian Factor",
     "Oopsie",
@@ -126,6 +133,9 @@ SITES_USING_SITENAME_AS_STUDIO_FOR_SCENE = [
     "Rocco Siffredi",
     "Squirtalicious",
     "3rd Degree Films",
+    "Lethalhardcore",
+    "Latex Playtime",
+    "Wicked",
 ]
 
 # a list of sites (`sitename_pretty` from the API) which should pick out the
@@ -138,7 +148,13 @@ SITES_USING_NETWORK_AS_STUDIO_FOR_SCENE = [
     "Muses",            # network_name: Transfixed
     "Officemsconduct",  # network_name: Transfixed
     "Sabiendemonia",    # network_name: Sabien DeMonia
-    "Upclosex"          # network_name: UpCloseX
+    "Upclosex",         # network_name: UpCloseX
+]
+
+# Some sites lists scenes from different subnetworks and uses mainChannel as studio
+# Good example is asgmax.com.
+SITES_SEGMENT_USING_MAIN_CHANNEL_AS_SCENE_STUDIO = [
+    "asgmax",
 ]
 
 # a list of networks (`network_name` from the API) which should pick out the
@@ -151,7 +167,12 @@ NETWORKS_USING_SITENAME_AS_STUDIO_FOR_SCENE = [
 
 # a dict of directors to use as the studio for a scene
 DIRECTOR_AS_STUDIO_OVERRIDE_FOR_SCENE = {
-    "Le Wood": "LeWood"
+    "Le Wood": "LeWood",
+    "Rocco Siffredi": "Rocco Siffredi",
+    "Scarlet Chase": "Secret Crush",
+    "Angelo Godshack": "Angelo Godshack",
+    "Jonni Darkko": "Jonni Darkko XXX",
+    "Chris Streams": "Chris Streams",
 }
 
 
@@ -163,36 +184,19 @@ def clean_text(details: str) -> str:
         details = re.sub(r"\\", "", details)
         details = re.sub(r"<\s*/?br\s*/?\s*>", "\n",
                          details)  # bs.get_text doesnt replace br's with \n
-        details = bs(details, features='lxml').get_text()
+        details = bs(details, features='html.parser').get_text()
+        # Remove leading/trailing/double whitespaces
+        details = '\n'.join(
+            [
+                ' '.join([s for s in x.strip(' ').split(' ') if s != ''])
+                for x in ''.join(details).split('\n')
+            ]
+        )
+        details = details.strip()
     return details
 
 
-def check_db(database_path: str, scn_id: str) -> dict:
-    """
-    get scene data (size, duration, height) directly from the database file
-    """
-    try:
-        sqlite_connection = sqlite3.connect("file:" + database_path +
-                                            "?mode=ro",
-                                            uri=True)
-        log.debug("Connected to SQLite database")
-    except:
-        log.warning("Fail to connect to the database")
-        return None, None, None
-    cursor = sqlite_connection.cursor()
-    cursor.execute("SELECT size,duration,height from scenes WHERE id=?;",
-                   [scn_id])
-    record = cursor.fetchall()
-    database = {}
-    database["size"] = int(record[0][0])
-    database["duration"] = int(record[0][1])
-    database["height"] = str(record[0][2])
-    cursor.close()
-    sqlite_connection.close()
-    return database
-
-
-def send_request(url: str, head: str, send_json="") -> requests.Response:
+def send_request(url: str, head: dict, send_json="") -> requests.Response:
     """
     get post response from url
     """
@@ -233,18 +237,18 @@ def fetch_page_json(page_html):
 
 
 def check_config(domain, time):
-    if os.path.isfile(STOCKAGE_FILE_APIKEY):
-        config = ConfigParser()
-        config.read(STOCKAGE_FILE_APIKEY)
+    if os.path.isfile(config.STOCKAGE_FILE_APIKEY):
+        parser = ConfigParser()
+        parser.read(config.STOCKAGE_FILE_APIKEY)
         try:
-            time_past = datetime.datetime.strptime(config.get(domain, 'date'),
+            time_past = datetime.datetime.strptime(parser.get(domain, 'date'),
                                                    '%Y-%m-%d %H:%M:%S.%f')
 
             if time_past.hour - 1 < time.hour < time_past.hour + 1 and (
                     time - time_past).days == 0:
                 log.debug("Using old key")
-                application_id = config.get(domain, 'app_id')
-                api_key = config.get(domain, 'api_key')
+                application_id = parser.get(domain, 'app_id')
+                api_key = parser.get(domain, 'api_key')
                 return application_id, api_key
             log.info(
                 f"Need new api key: [{time.hour}|{time_past.hour}|{(time-time_past).days}]"
@@ -256,17 +260,17 @@ def check_config(domain, time):
 
 def write_config(date, app_id, api_key):
     log.debug("Writing config!")
-    config = ConfigParser()
-    config.read(STOCKAGE_FILE_APIKEY)
+    parser = ConfigParser()
+    parser.read(config.STOCKAGE_FILE_APIKEY)
     try:
-        config.get(SITE, 'date')
+        parser.get(SITE, 'date')
     except NoSectionError:
-        config.add_section(SITE)
-    config.set(SITE, 'date', date.strftime("%Y-%m-%d %H:%M:%S.%f"))
-    config.set(SITE, 'app_id', app_id)
-    config.set(SITE, 'api_key', api_key)
-    with open(STOCKAGE_FILE_APIKEY, 'w', encoding='utf-8') as configfile:
-        config.write(configfile)
+        parser.add_section(SITE)
+    parser.set(SITE, 'date', date.strftime("%Y-%m-%d %H:%M:%S.%f"))
+    parser.set(SITE, 'app_id', app_id)
+    parser.set(SITE, 'api_key', api_key)
+    with open(config.STOCKAGE_FILE_APIKEY, 'w', encoding='utf-8') as configfile:
+        parser.write(configfile)
 
 
 # API Search Data
@@ -527,7 +531,7 @@ def match_result(api_scene, range_duration=60, single=False, clip_id: str=None):
     return match_dict
 
 
-def get_id_from_url(url: str) -> str:
+def get_id_from_url(url: str) -> str | None:
     '''
     gets  the id from a valid url
     expects urls of the form www.example.com/.../title/id
@@ -555,7 +559,7 @@ def parse_movie_json(movie_json: dict) -> dict:
     scrape = {}
     try:
         studio_name = determine_studio_name_from_json(movie_json[0])
-    except IndexError:
+    except Exception:
         log.debug("No movie found")
         return scrape
     scrape["synopsis"] = clean_text(movie_json[0].get("description"))
@@ -580,10 +584,16 @@ def parse_movie_json(movie_json: dict) -> dict:
         date_by_studio = studios_movie_dates[studio_name]
     scrape["date"] = movie_json[0].get(date_by_studio)
 
-    scrape[
-        "front_image"] = f"https://transform.gammacdn.com/movies{movie[0].get('cover_path')}_front_400x625.jpg?width=450&height=636"
-    scrape[
-        "back_image"] = f"https://transform.gammacdn.com/movies{movie[0].get('cover_path')}_back_400x625.jpg?width=450&height=636"
+    front_img_req = requests.get(f"https://transform.gammacdn.com/movies{movie[0].get('cover_path')}_front_400x625.jpg?width=450&height=636")
+    if front_img_req.ok:
+        scrape["front_image"] = front_img_req.url
+
+    back_img_req = requests.get(f"https://transform.gammacdn.com/movies{movie[0].get('cover_path')}_back_400x625.jpg?width=450&height=636")
+    if back_img_req.ok:
+        if base64.b64encode(front_img_req.content) == base64.b64encode(back_img_req.content):
+            log.debug("back_image same as front_image")
+        else:
+            scrape["back_image"] = back_img_req.url
 
     directors = []
     if movie_json[0].get('directors') is not None:
@@ -601,6 +611,9 @@ def determine_studio_name_from_json(some_json):
     - movie
     '''
     studio_name = None
+    if some_json.get('segment') in SITES_SEGMENT_USING_MAIN_CHANNEL_AS_SCENE_STUDIO:
+        studio_name = some_json.get('mainChannel', {}).get('name', '')
+        return studio_name
     if some_json.get('sitename_pretty'):
         if some_json.get('sitename_pretty') in SITES_USING_OVERRIDE_AS_STUDIO_FOR_SCENE:
             studio_name = \
@@ -619,17 +632,16 @@ def determine_studio_name_from_json(some_json):
     if not studio_name and some_json.get('mainChannelName') and \
             some_json.get('mainChannelName') in MAIN_CHANNELS_AS_STUDIO_FOR_SCENE:
         studio_name = some_json.get('mainChannelName')
-    if not studio_name and some_json.get('directors'):
+    if studio_name and some_json.get('directors'):
         for director in [ d.get('name').strip() for d in some_json.get('directors') ]:
             if DIRECTOR_AS_STUDIO_OVERRIDE_FOR_SCENE.get(director):
                 studio_name = \
                         DIRECTOR_AS_STUDIO_OVERRIDE_FOR_SCENE.get(director)
+    if some_json.get('serie_name') and some_json.get('serie_name') in SERIE_USING_OVERRIDE_AS_STUDIO_FOR_SCENE:
+        studio_name = \
+                SERIE_USING_OVERRIDE_AS_STUDIO_FOR_SCENE.get(some_json.get('serie_name'))
     if not studio_name and some_json.get('serie_name'):
-        if some_json.get('serie_name') in SERIE_USING_OVERRIDE_AS_STUDIO_FOR_SCENE:
-            studio_name = \
-                    SERIE_USING_OVERRIDE_AS_STUDIO_FOR_SCENE.get(some_json.get('serie_name'))
-        else:
-            studio_name = some_json.get('serie_name')
+        studio_name = some_json.get('serie_name')
     return studio_name
 
 def parse_scene_json(scene_json, url=None):
@@ -668,7 +680,7 @@ def parse_scene_json(scene_json, url=None):
     # Performer
     perf = []
     for actor in scene_json.get('actors'):
-        if actor.get('gender') == "female" or NON_FEMALE:
+        if actor.get('gender') == "female" or config.NON_FEMALE:
             perf.append({
                 "name": actor.get('name').strip(),
                 "gender": actor.get('gender')
@@ -684,8 +696,15 @@ def parse_scene_json(scene_json, url=None):
         tag_name = " ".join(tag.capitalize() for tag in tag_name.split(" "))
         if tag_name:
             list_tag.append({"name": tag.get('name')})
-    if FIXED_TAG:
-        list_tag.append({"name": FIXED_TAG})
+            
+    # Append content_tags to list_tag
+    for tag in scene_json.get('content_tags', []):
+        if isinstance(tag, str):
+            tag = tag.capitalize()
+            list_tag.append({"name": tag})
+
+    if config.FIXED_TAG:
+        list_tag.append({"name": config.FIXED_TAG})
     scrape['tags'] = list_tag
 
     # Image
@@ -773,7 +792,7 @@ def parse_gallery_json(gallery_json: dict, url: str = None) -> dict:
     # Performer
     perf = []
     for actor in gallery_json.get('actors'):
-        if actor.get('gender') == "female" or NON_FEMALE:
+        if actor.get('gender') == "female" or config.NON_FEMALE:
             perf.append({
                 "name": actor.get('name').strip(),
                 "gender": actor.get('gender')
@@ -789,8 +808,15 @@ def parse_gallery_json(gallery_json: dict, url: str = None) -> dict:
         tag_name = " ".join(tag.capitalize() for tag in tag_name.split(" "))
         if tag_name:
             list_tag.append({"name": tag.get('name')})
-    if FIXED_TAG:
-        list_tag.append({"name": FIXED_TAG})
+    # Append content_tags to list_tag
+    for tag in gallery_json.get('content_tags', []):
+        if isinstance(tag, str):
+            tag = tag.capitalize()
+            list_tag.append({"name": tag})
+        else:
+            continue
+    if config.FIXED_TAG:
+        list_tag.append({"name": config.FIXED_TAG})
     scrape['tags'] = list_tag
 
     # URL
@@ -818,7 +844,7 @@ try:
 except:
     USERFOLDER_PATH = None
     CONFIG_PATH = None
-    log.debug("No config")
+    log.debug("No Stash config found")
 
 SITE = sys.argv[1]
 HEADERS = {
@@ -885,12 +911,7 @@ if "movie" not in sys.argv and "gallery" not in sys.argv:
         if SCENE_ID:
             # Get data by GraphQL
             database_dict = graphql.getScene(SCENE_ID)
-            if database_dict is None:
-                # Get data by SQlite
-                log.warning(
-                    "GraphQL request failed, accessing database directly...")
-                database_dict = check_db(DB_PATH, SCENE_ID)
-            else:
+            if database_dict is not None:
                 database_dict = database_dict["files"]
             log.debug(f"[DATABASE] Info: {database_dict}")
         else:
