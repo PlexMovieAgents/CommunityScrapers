@@ -102,14 +102,16 @@ const setTable = (scrapers, searchValue = "") => {
     createToolTip(row.insertCell(2), sType.scene);
     // gallery scraping
     createToolTip(row.insertCell(3), sType.gallery);
-    // movie scraping
-    row.insertCell(4).textContent = returnMatch(sType.movie.url, "🔗");
+    // image scraping
+    createToolTip(row.insertCell(4), sType.image);
+    // group scraping
+    row.insertCell(5).textContent = returnMatch(sType.group.url, "🔗");
     // performer scraping
-    createToolTip(row.insertCell(5), sType.performer);
+    createToolTip(row.insertCell(6), sType.performer);
     // requires
-    row.insertCell(6).textContent = returnMatch(scp.requires.python, "🐍");
-    row.insertCell(7).textContent = returnMatch(scp.requires.cdp, "🌐");
-    row.insertCell(8).textContent = ago(new Date(scp.lastUpdate));
+    row.insertCell(7).textContent = returnMatch(scp.requires.python, "🐍");
+    row.insertCell(8).textContent = returnMatch(scp.requires.cdp, "🌐");
+    row.insertCell(9).textContent = ago(new Date(scp.lastUpdate));
   });
 };
 
@@ -149,8 +151,7 @@ const fuseConfig = {
 let fuse;
 
 // fuse search
-async function search(event) {
-  const searchValue = event.target.value;
+async function search(searchValue) {
   if (searchValue.length < 3) return setTable(rawScraperList);
   const results = fuse.search(searchValue, {
     limit: 20,
@@ -158,6 +159,7 @@ async function search(event) {
   console.debug(searchValue, results);
   const filterTable = results.map((result) => result.item);
   setTable(filterTable, searchValue);
+  window.location.hash = searchValue
 }
 
 // parse scrapers.json
@@ -169,4 +171,10 @@ const fuseIndex = await fetch("assets/fuse-index.json")
   .then((response) => response.json())
   .then((data) => Fuse.parseIndex(data));
 fuse = new Fuse(rawScraperList, fuseConfig, fuseIndex);
-searchInput.addEventListener("input", debounce(search, 300));
+// if query in URL, jump automatically
+const query = window.location.hash.slice(1)
+if (query) {
+  searchInput.value = query;
+  search(query);
+}
+searchInput.addEventListener("input", event => debounce(search(event.target.value), 300));

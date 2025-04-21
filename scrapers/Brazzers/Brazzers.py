@@ -19,16 +19,29 @@ from AyloAPI.scrape import (
 studio_map = {
     "JugFuckers": "Jug Fuckers",
     "Shes Gonna Squirt": "She's Gonna Squirt",
+    "zzvr": "Brazzers VR",
 }
 
 
-def brazzers(obj: Any, _) -> Any:
+def brazzers(obj: Any, api_result: Any) -> Any:
+    # Brazzers still hosts all of their VR content on a separate domain
+    domain = "brazzersvr.com" if dig(api_result, "isVR") else "brazzers.com"
+
     # All brazzers URLs use /video/ instead of the standard /scene/
     # and /pornstar/ instead of the standard /model
     fixed = replace_all(
         obj,
         "url",
-        lambda x: x.replace("/scene/", "/video/").replace("/model/", "/pornstar/"),
+        lambda x: x.replace("/scene/", "/video/")
+        .replace("/model/", "/pornstar/")
+        .replace("brazzers.com", domain),
+    )
+    fixed = replace_all(
+        fixed,
+        "urls",
+        lambda x: x.replace("/scene/", "/video/")
+        .replace("/model/", "/pornstar/")
+        .replace("brazzers.com", domain),
     )
 
     # Rename certain studios according to the map
@@ -46,9 +59,7 @@ def brazzers(obj: Any, _) -> Any:
 
 
 if __name__ == "__main__":
-    domains = [
-        "brazzers",
-    ]
+    domains = ["brazzers", "brazzersvr"]
     op, args = scraper_args()
     result = None
 

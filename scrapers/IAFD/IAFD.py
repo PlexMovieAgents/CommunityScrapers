@@ -44,6 +44,15 @@ iafd_date_scene = "%b %d, %Y"
 
 T = TypeVar("T")
 
+SHARED_SELECTORS = {
+    "title": "//h1/text()",
+    "director": '//p[@class="bioheading"][contains(text(),"Director") or contains(text(),"Directors")]/following-sibling::p[@class="biodata"][1]/a/text()',
+    "studio": '//p[@class="bioheading"][contains(text(),"Studio")]/following-sibling::p[@class="biodata"][1]//text()',
+    "distributor": '//p[@class="bioheading"][contains(text(),"Distributor")]/following-sibling::p[@class="biodata"][1]//text()',
+    "date": '//p[@class="bioheading"][contains(text(), "Release Date")]/following-sibling::p[@class="biodata"][1]/text()',
+    "synopsis": '//div[@id="synopsis"]/div[@class="padded-panel"]//text()',
+}
+
 
 def maybe(
     values: Iterable[str], f: Callable[[str], (T | None)] = lambda x: x
@@ -64,8 +73,10 @@ def cleandict(d: dict):
 
 def map_gender(gender: str):
     genders = {
-        "f": "Female",
-        "m": "Male",
+        "Woman": "Female",
+        "Man": "Male",
+        "Trans woman": "Transgender Female",
+        "Trans man": "Transgender Male",
     }
     return genders.get(gender, gender)
 
@@ -184,28 +195,38 @@ def performer_url(tree):
         lambda u: f"https://www.iafd.com{u}",
     )
 
+def performer_gender_map(tree):
+    gender = tree.xpath('//p[@class="bioheading" and contains(text(), "Gender")]/following-sibling::p[1]/text()')
+    return map_gender(gender[0])
 
+# unused code
 def performer_gender(tree):
-    def prepend_transgender(gender: str):
+    def parse_transgender(gender: str):
+        # get trans genders from the short code supplied
+        if gender in ['tf', 'tm']:
+            return map_gender(gender)
+
+        # next, attempt to get the trans gender from the performer id suffix
         perf_id = next(
             iter(tree.xpath('//form[@id="correct"]/input[@name="PerfID"]/@value')), ""
         )
         trans = (
             "Transgender "
             # IAFD are not consistent with their URLs
-            if any(mark in perf_id for mark in ("_ts", "_ftm", "_mtf"))
+            if any(mark in perf_id.lower() for mark in ("_ts", "_ftm", "_mtf"))
             else ""
         )
         return trans + map_gender(gender)
 
     return maybe(
         tree.xpath('//form[@id="correct"]/input[@name="Gender"]/@value'),
-        prepend_transgender,
+        parse_transgender,
     )
+# end unused code
 
 
 def performer_name(tree):
-    return maybe(tree.xpath("//h1/text()"), lambda name: name.strip())
+    return maybe(tree.xpath(SHARED_SELECTORS["title"]), lambda name: name.strip())
 
 
 def performer_piercings(tree):
@@ -219,6 +240,7 @@ def performer_tattoos(tree):
         tree.xpath('//div/p[text()="Tattoos"]/following-sibling::p[1]//text()')
     )
 
+
 def performer_eyecolor(tree):
     return maybe(
         tree.xpath('//div/p[text()="Eye Color"]/following-sibling::p[1]//text()')
@@ -227,9 +249,11 @@ def performer_eyecolor(tree):
 
 def performer_aliases(tree):
     aliases = tree.xpath(
-        '//div[p[@class="bioheading" and contains(normalize-space(text()),"Performer AKA")]]//div[@class="biodata" and not(normalize-space(text())="No known aliases")]/text()'
+        '//div[p[@class="bioheading" and contains(normalize-space(text()),"Performer AKA")'
+        'or contains(normalize-space(text()),"AKA")]]'
+        '//div[@class="biodata" and not(normalize-space(text())="No known aliases")]/text()'
     )
-    return ", ".join([clean_alias(alias.strip()) for alias in aliases if alias])
+    return ", ".join([y for x in aliases for y in [clean_alias(x.strip())] if y])
 
 
 def performer_careerlength(tree):
@@ -249,60 +273,67 @@ def performer_measurements(tree):
 
 def scene_director(tree):
     return maybe(
-        tree.xpath(
-            '//p[@class="bioheading"][text()="Director" or text()="Directors"]/following-sibling::p[1]//text()'
-        ),
+        tree.xpath(SHARED_SELECTORS["director"]),
         lambda d: d.strip(),
     )
 
 
 def scene_studio(tree):
     return maybe(
-        tree.xpath(
-            '//div[@class="col-xs-12 col-sm-3"]//p[text() = "Studio"]/following-sibling::p[1]//text()'
-        ),
+        tree.xpath(SHARED_SELECTORS["studio"]),
+        lambda s: {"name": s},
+    ) or maybe(
+        tree.xpath(SHARED_SELECTORS["distributor"]),
         lambda s: {"name": s},
     )
 
 
 def scene_details(tree):
-    return maybe(tree.xpath('//div[@id="synopsis"]/div[@class="padded-panel"]//text()'))
+    return maybe(tree.xpath(SHARED_SELECTORS["synopsis"]))
 
 
 def scene_date(tree):
+    # If there's no release date we will use the year from the title for an approximate date
+    title_pattern = re.compile(r".*\(([0-9]{4})\).*")
     return maybe(
-        tree.xpath(
-            '//div[@class="col-xs-12 col-sm-3"]//p[text() = "Release Date"]/following-sibling::p[1]//text()'
-        ),
+        tree.xpath(SHARED_SELECTORS["date"]),
         clean_date,
+    ) or maybe(
+        tree.xpath(SHARED_SELECTORS["title"]),
+        lambda t: re.sub(title_pattern, r"\1-01-01", t).strip()
+        if re.match(title_pattern, t)
+        else None,
     )
 
 
 def scene_title(tree):
     return maybe(
-        tree.xpath("//h1/text()"), lambda t: re.sub(r"\s*\(\d{4}\)$", "", t.strip())
+        tree.xpath(SHARED_SELECTORS["title"]),
+        lambda t: re.sub(r"\s*\(\d{4}\)$", "", t.strip()),
     )
 
 
 def movie_studio(tree):
     return maybe(
-        tree.xpath(
-            '//p[@class="bioheading"][contains(text(),"Studio" or contains(text(),"Distributor"))]/following-sibling::p[@class="biodata"][1]//text()'
-        ),
+        tree.xpath(SHARED_SELECTORS["studio"]),
+        lambda s: {"name": s},
+    ) or maybe(
+        tree.xpath(SHARED_SELECTORS["distributor"]),
         lambda s: {"name": s},
     )
 
 
 def movie_date(tree):
     # If there's no release date we will use the year from the title for an approximate date
+    title_pattern = re.compile(r".*\(([0-9]{4})\).*")
     return maybe(
-        tree.xpath(
-            '//p[@class="bioheading"][contains(text(), "Release Date")]/following-sibling::p[@class="biodata"][1]/text()'
-        ),
+        tree.xpath(SHARED_SELECTORS["date"]),
         lambda d: clean_date(d.strip()),
     ) or maybe(
-        tree.xpath("//h1/text()"),
-        lambda t: re.sub(r".*\(([0-9]+)\).*$", r"\1-01-01", t),
+        tree.xpath(SHARED_SELECTORS["title"]),
+        lambda t: re.sub(title_pattern, r"\1-01-01", t).strip()
+        if re.match(title_pattern, t)
+        else None,
     )
 
 
@@ -317,21 +348,20 @@ def movie_duration(tree):
 
 
 def movie_synopsis(tree):
-    return maybe(tree.xpath('//div[@id="synopsis"]/div[@class="padded-panel"]//text()'))
+    return maybe(tree.xpath(SHARED_SELECTORS["synopsis"]))
 
 
 def movie_director(tree):
     return maybe(
-        tree.xpath(
-            '//p[@class="bioheading"][contains(text(), "Directors")]/following-sibling::p[@class="biodata"][1]/a/text()'
-        ),
+        tree.xpath(SHARED_SELECTORS["director"]),
         lambda d: d.strip(),
     )
 
 
 def movie_title(tree):
     return maybe(
-        tree.xpath("//h1/text()"), lambda t: re.sub(r"\s*\(\d+\)$", "", t.strip())
+        tree.xpath(SHARED_SELECTORS["title"]),
+        lambda t: re.sub(r"\s*\(\d+\)$", "", t.strip()),
     )
 
 
@@ -381,8 +411,8 @@ def performer_query(query):
     )
     performers = [
         {
-            "Name": name,
-            "URL": f"https://www.iafd.com{url}",
+            "name": name,
+            "urls": [f"https://www.iafd.com{url}"],
         }
         for name, url in zip(performer_names, performer_urls)
     ]
@@ -394,8 +424,8 @@ def performer_query(query):
 def performer_from_tree(tree):
     return {
         "name": performer_name(tree),
-        "gender": performer_gender(tree),
-        "url": performer_url(tree),
+        "gender": performer_gender_map(tree),
+        "urls": [performer_url(tree)],
         "twitter": performer_twitter(tree),
         "instagram": performer_instagram(tree),
         "birthdate": performer_birthdate(tree),
@@ -427,12 +457,12 @@ def scene_from_tree(tree):
         "performers": [
             {
                 "name": p.text_content(),
-                "url": f"https://www.iafd.com{p.get('href')}",
+                "urls": [f"https://www.iafd.com{p.get('href')}"],
                 "images": [base64_image(url) for url in p.xpath("img/@src")],
             }
             for p in tree.xpath('//div[@class="castbox"]/p/a')
         ],
-        "url": video_url(tree),
+        "urls": [video_url(tree)],
     }
 
 
@@ -504,7 +534,7 @@ def main():
     result = {}
     if args.operation == "performer":
         result = performer_from_tree(scraped)
-        result["url"] = iafd_uuid_url
+        result["urls"] = [iafd_uuid_url]
     elif args.operation == "movie":
         result = movie_from_tree(scraped)
     elif args.operation == "scene":

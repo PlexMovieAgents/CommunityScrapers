@@ -6,22 +6,19 @@ import sys
 from datetime import datetime
 
 import py_common.log as log
+import cloudscraper
 
-try:
-    import cloudscraper
-except ModuleNotFoundError:
-    print("You need to install the cloudscraper module. (https://pypi.org/project/cloudscraper/)", file=sys.stderr)
-    print("If you have pip (normally installed with python), run this command in a terminal (cmd): pip install cloudscraper", file=sys.stderr)
-    sys.exit()
-try:
-    import requests
-except ModuleNotFoundError:
-    print("You need to install the requests module. (https://docs.python-requests.org/en/latest/user/install/)", file=sys.stderr)
-    print("If you have pip (normally installed with python), run this command in a terminal (cmd): pip install requests", file=sys.stderr)
-    sys.exit()
+### SET MEMBER ACCESS TOKEN HERE
+### CAN BE access_token OR refresh_token
+TEAMSKEET_ACCESS_TOKEN = ""
+MYLF_ACCESS_TOKEN = ""
+####
+
+scraper = cloudscraper.create_scraper()
+
 
 def try_url(url):
-    return requests.head(url).status_code == 200
+    return scraper.head(url).status_code == 200
 
 def try_img_replacement(imgurl):
     # members/full - 1600x900
@@ -128,20 +125,32 @@ else:
     log.error('You need to set the URL (e.g. teamskeet.com/movies/*****)')
     sys.exit(1)
 
-
+IS_MEMBER = False
 # Check the URL and set the API URL
-if 'sayuncle.com' in scene_url:
+if 'app.teamskeet.com' in scene_url:
+    ORIGIN = "https://app.teamskeet.com"
+    REFERER = "https://app.teamskeet.com"
+    API_BASE = "https://ma-store.teamskeet.com/ts_index/_doc/movie-"
+    MEMBER_ACCESS_TOKEN = TEAMSKEET_ACCESS_TOKEN
+    IS_MEMBER = True
+elif 'app.mylf.com' in scene_url:
+    ORIGIN = "https://app.mylf.com"
+    REFERER = "https://app.mylf.com"
+    API_BASE = "https://ma-store.mylf.com/mylf_movies/_doc/"
+    MEMBER_ACCESS_TOKEN = MYLF_ACCESS_TOKEN
+    IS_MEMBER = True
+elif 'sayuncle.com' in scene_url:
     ORIGIN = 'https://www.sayuncle.com'
     REFERER = 'https://www.sayuncle.com/'
-    API_BASE = 'https://tours-store.psmcdn.net/sau-elastic-00gy5fg5ra-videoscontent/_doc/'
+    API_BASE = 'https://tours-store.psmcdn.net/sau-elastic-alias-videoscontent/_doc/'
 elif 'teamskeet.com' in scene_url:
     ORIGIN = 'https://www.teamskeet.com'
     REFERER = 'https://www.teamskeet.com/'
-    API_BASE = 'https://tours-store.psmcdn.net/ts-elastic-d5cat0jl5o-videoscontent/_doc/'
+    API_BASE = 'https://tours-store.psmcdn.net/ts-elastic-alias-videoscontent/_doc/'
 elif 'mylf.com' in scene_url:
     ORIGIN = 'https://www.mylf.com'
     REFERER = 'https://www.mylf.com/'
-    API_BASE = 'https://tours-store.psmcdn.net/mylf-elastic-hka5k7vyuw-videoscontent/_doc/'
+    API_BASE = 'https://tours-store.psmcdn.net/mylf-elastic-alias-videoscontent/_doc/'
 elif 'swappz.com' in scene_url:
     ORIGIN = 'https://www.swappz.com'
     REFERER = 'https://www.swappz.com/'
@@ -150,11 +159,16 @@ else:
     log.error('The URL is not from a Teamskeet, MYLF, SayUncle or Swappz URL (e.g. teamskeet.com/movies/*****)')
     sys.exit(1)
 
+# check for member access token
+if (IS_MEMBER and MEMBER_ACCESS_TOKEN == ""):
+    log.error("You are trying to scrape a member scene without an acess token")
+    log.error("Please edit the scraper and populate the corresponding _ACCESS_TOKEN variable")
 
-scene_id = re.sub('.+/', '', scene_url)
+scene_id = re.match(r'.+\/([\w\d-]+)', scene_url)
 if not scene_id:
     log.error("Error with the ID ({})\nAre you sure that the end of your URL is correct ?".format(scene_id))
     sys.exit(1)
+scene_id = scene_id.group(1)
 use_local = 0
 json_file = os.path.join(DIR_JSON, scene_id+".json")
 if os.path.isfile(json_file):
@@ -169,19 +183,21 @@ else:
         'Origin': ORIGIN,
         'Referer': REFERER
     }
+    if IS_MEMBER:
+        headers.update({"Cookie": f"access_token={MEMBER_ACCESS_TOKEN}"})
     log.debug(f"Asking the API... {api_url}")
-    scraper = cloudscraper.create_scraper()
+
     # Send to the API
     r = ""
     try:
         r = scraper.get(api_url, headers=headers, timeout=(3, 5))
-    except:
+    except Exception as e:
         log.error("An error has occurred with the page request")
-        log.error(f"Request status: `{r.status_code}`")
+        log.error(e)
         log.error("Check your TeamskeetAPI.log for more details")
         with open("TeamskeetAPI.log", 'w', encoding='utf-8') as f:
             f.write(f"Scene ID: {scene_id}\n")
-            f.write(f"Request:\n{r.text}")
+            f.write(f"Request:\n{e}")
         sys.exit(1)
     try:
         scene_api_json_check = r.json().get('found')
@@ -194,7 +210,10 @@ else:
             log.error('Scene not found (Wrong ID?)')
             sys.exit(1)
 
-    except:
+    except Exception:
+        log.debug(r.status_code)
+        if (r.status_code == 401 and IS_MEMBER):
+            log.error("It's likely that your member access token needs to be replaced")
         if "Just a moment..." in r.text:
             log.error("Protected by Cloudflare. Retry later...")
         else:
@@ -204,7 +223,9 @@ else:
 # Time to scrape all data
 scrape = {}
 scrape['title'] = scene_api_json.get('title')
-dt = scene_api_json.get('publishedDate')
+# for members, used publishedDateRank
+dt = scene_api_json.get("publishedDateRank") if IS_MEMBER else scene_api_json.get('publishedDate')
+
 if dt:
     dt = re.sub(r'T.+', '', dt)
     date = datetime.strptime(dt, '%Y-%m-%d')
@@ -223,22 +244,29 @@ CLEANR = re.compile('<.*?>')
 cleandescription = re.sub(CLEANR,'',scene_api_json.get('description'))
 scrape['details'] = cleandescription.strip()
 scrape['studio'] = {}
-studioApiName = scene_api_json['site'].get('name')
+# pull directly from siteName if member
+studioApiName = scene_api_json['site'].get('siteName') if IS_MEMBER else scene_api_json['site'].get('name')
 log.debug("Studio API name is '" + studioApiName + "'")
 scrape['studio']['name'] = studioMap[studioApiName] if studioApiName in studioMap else studioApiName
+if " x " in scrape['studio']['name'].lower():
+    tags.append("Redistribution")
 scrape['tags'] = [{"name": x} for x in tags]
-scrape['code'] = scene_api_json.get('cId', '').split('/')[-1]
+scrape['code'] = scene_id if IS_MEMBER else scene_api_json.get('cId', '').split('/')[-1]
 for tag in studioDefaultTags.get(studioApiName, []):
     log.debug("Assiging default tags - " + tag)
     scrape['tags'].append({"name": tag})
 scrape['image'] = scene_api_json.get('img')
+# handle members performers differently
+if IS_MEMBER:
+    scrape['performers'] = [{"name": x.get('name')}
+        for x in scene_api_json.get('models')]
 # handle swappz performers differently
-if 'swappz.com' in scene_url:
+elif 'swappz.com' in scene_url:
     scrape['performers'] = [{"name": x.get('title')}
-                        for x in scene_api_json.get('models')]
+        for x in scene_api_json.get('models')]
 else:
     scrape['performers'] = [{"name": x.get('modelName')}
-                            for x in scene_api_json.get('models')]
+        for x in scene_api_json.get('models')]
 
 # Each of TeamSkeet, MYLF and SayUncle have different ways to handle 
 # high resolution scene images.  SayUncle is a high resoution right
