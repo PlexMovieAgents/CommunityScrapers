@@ -445,12 +445,14 @@ def scrape_scene_by_dmm_adult(frag):
     }
     log.info(f'scrape scene by dmm url {frag["url"]}')
     resp = requests.get(frag['url'], headers=JAV_HEADERS)
+    log.debug(f'DMM Response {resp.text}')
+
     soup = BeautifulSoup(resp.text, 'html.parser')
     
-    ageCheckDIVs = soup.find_all('div', {'class': 'ageCheck__btn'})
-    if ageCheckDIVs:
+    ageCheckDIV = soup.find('div', {'class': 'fill'})
+    if 'age_check' in resp.url and ageCheckDIV:
         log.debug("AGE CHECK " + resp.text)
-        ageCheckLink = ageCheckDIVs[1].a.get('href')
+        ageCheckLink = ageCheckDIV.a.get('href')
         JAV_HEADERS["Referer"] = resp.url
         log.info(f'scrape scene by dmm url age checked {ageCheckLink}')
         resp = requests.get(ageCheckLink, headers=JAV_HEADERS)
@@ -466,6 +468,8 @@ def scrape_scene_by_dmm_adult(frag):
         if '価格は全て税込み表示です' in detail_node_text:
             continue
         if 'イメージを拡大' in detail_node_text:
+            continue
+        if '音声オフで自動再生する機能が使えます' in detail_node_text:
             continue
         scene['details'] = detail_node_text.strip()
         break
@@ -565,7 +569,9 @@ def scrape_scene_by_caribpr(frag):
     log.info(f'Requesting caribpr {frag["url"]}')
 
     resp = requests.get(frag['url'], headers=JAV_HEADERS, timeout=10000)
-    soup = BeautifulSoup(resp.content, 'html.parser', from_encoding="euc-jp")
+    log.info(f'caribpr resp.headers={resp.headers}')
+    # soup = BeautifulSoup(resp.content, 'html.parser', from_encoding="euc-jp")
+    soup = BeautifulSoup(resp.content.decode('euc-jp', errors='backslashreplace'), 'html.parser')
 
     log.debug("caribpr " + soup.prettify())
 
@@ -896,7 +902,7 @@ def scrape_scene_by_wapdb(scene):
     scene['title'] = title
 
     try:
-        scene = fulfill_scene_by_dmm_cid(dmm_cid, scene)
+        scene = fulfill_scene_by_dmm_cid(dmm_cid, scene, dmm_digital_cid)
         scene['urls'].insert(0, url)
     except:
         pass
@@ -904,7 +910,7 @@ def scrape_scene_by_wapdb(scene):
     log.info("Final info: %s" % json.dumps(scene))
     return scene
 
-def fulfill_scene_by_dmm_cid(cid, scene):
+def fulfill_scene_by_dmm_cid(cid, scene, dcid):
     digital_cid = cid
     if match := re.match(r'^(\w+)-0(\d{3})$', cid):
         cid = match.group(1) + match.group(2)
@@ -926,7 +932,7 @@ def fulfill_scene_by_dmm_cid(cid, scene):
         pass
     
     try:
-        dmm_url = f'https://www.dmm.co.jp/digital/videoa/-/detail/=/cid={digital_cid}/'
+        dmm_url = f'https://www.dmm.co.jp/digital/videoa/-/detail/=/cid={dcid if dcid else digital_cid}/'
         dmm_scene = scrape_scene_by_dmm_adult({'url': dmm_url})
         if dmm_details := dmm_scene.get('details'):
             scene['details'] = dmm_details
@@ -1397,8 +1403,8 @@ def main():
     # workaround for cp1252
     sys.stdin = io.TextIOWrapper(sys.stdin.detach(), encoding='utf-8')
     frag = json.loads(sys.stdin.read())
-    log.info(str(frag))
     arg = sys.argv[-1]
+    log.info(f'main arg={arg} frag={frag}')
     if arg == 'performerByName':
         performers = search_performer(frag)
         result = json.dumps(performers)
@@ -1448,6 +1454,8 @@ def main():
         elif 'https://www.caribbeancom.com/' in frag['name']:
             print(json.dumps([{'url': frag['name']}]))
         elif match := re.search(r'caribpr\s*(\d{6})\s*(\d{3})', frag['name']):
+            print(json.dumps([{'url': f'https://www.caribbeancompr.com/moviepages/{match.group(1)}_{match.group(2)}/index.html'}]))
+        elif match := re.search(r'(\d{6})_(\d{3})[\-\s]*caribpr', frag['name']):
             print(json.dumps([{'url': f'https://www.caribbeancompr.com/moviepages/{match.group(1)}_{match.group(2)}/index.html'}]))
         elif match := re.search(r'carib\s*(\d{6})\s*(\d{3})', frag['name']):
             print(json.dumps([{'url': f'https://www.caribbeancom.com/moviepages/{match.group(1)}-{match.group(2)}/index.html'}]))
